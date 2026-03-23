@@ -1,0 +1,20 @@
+{{- if .Values.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "kube-copilot-ui.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "kube-copilot-ui.labels" . | nindent 4 }}
+  annotations:
+    haproxy.router.openshift.io/timeout: {{ .Values.route.timeout | quote }}
+spec:
+  to:
+    kind: Service
+    name: {{ include "kube-copilot-ui.fullname" . }}
+  port:
+    targetPort: http
+  tls:
+    termination: {{ .Values.route.tls.termination }}
+    insecureEdgeTerminationPolicy: {{ .Values.route.tls.insecureEdgeTerminationPolicy }}
+{{- end }}

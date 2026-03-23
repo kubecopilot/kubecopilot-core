@@ -52,70 +52,61 @@ Webhook server (inside operator)
 
 ---
 
-## Getting Started
+## Installation
+
+There are three Helm charts, meant to be installed in order:
+
+| Chart | Purpose |
+|---|---|
+| `helm/kube-copilot-agent` | The operator (CRDs + controller) |
+| `helm/github-copilot-agent` | A GitHub Copilot agent instance |
+| `helm/kube-copilot-ui` | The web UI |
 
 ### Prerequisites
 
-- Go v1.24+
 - kubectl v1.20+
-- Access to a Kubernetes/OpenShift cluster
+- Helm v3.10+
+- Access to a Kubernetes or OpenShift cluster
 - A GitHub account with Copilot access
 - A GitHub Personal Access Token (PAT) with `copilot` scope
-- Podman or Docker for building images
 
-### 1. Create the namespace
+---
 
-```sh
-kubectl apply -f config/samples/namespace.yaml
-```
-
-### 2. Install CRDs
+### Step 1 — Install the operator
 
 ```sh
-make install
+helm upgrade --install kube-copilot-agent ./helm/kube-copilot-agent \
+  --namespace kube-copilot-agent \
+  --create-namespace
 ```
 
-### 3. Build and push images
+If the namespace already exists:
 
 ```sh
-# Operator
-make container-build container-push
-
-# Agent container (GitHub Copilot CLI wrapper)
-make container-build-agent container-push-agent
-
-# Web UI
-make container-build-ui container-push-ui
+helm upgrade --install kube-copilot-agent ./helm/kube-copilot-agent \
+  --namespace kube-copilot-agent \
+  --set createNamespace=false
 ```
 
-Image names are configured in the `Makefile`:
+**Key operator values:**
 
-```makefile
-IMG       ?= quay.io/gfontana/kube-copilot-agent:v1.0
-AGENT_IMG ?= quay.io/gfontana/kube-github-copilot-agent-server:v1.0
-UI_IMG    ?= quay.io/gfontana/kube-copilot-agent-ui:v1.0
-```
+| Value | Default | Description |
+|---|---|---|
+| `namespace` | `kube-copilot-agent` | Namespace to deploy into |
+| `createNamespace` | `true` | Create the namespace as part of the chart |
+| `image.repository` | `quay.io/gfontana/kube-copilot-agent` | Operator image |
+| `image.tag` | `v1.0` | Operator image tag |
+| `image.pullPolicy` | `Always` | Image pull policy |
+| `agentImage.repository` | `quay.io/gfontana/kube-github-copilot-agent-server` | Default agent image |
+| `agentImage.tag` | `v1.0` | Default agent image tag |
+| `replicaCount` | `1` | Operator replicas |
+| `installCRDs` | `true` | Install CRDs with the chart |
+| `rbac.create` | `true` | Create RBAC resources |
+| `leaderElect` | `true` | Enable leader election |
 
-You can run commands setting variables above to your registry, e.g.:
+---
 
-```sh
-# Operator
-make container-build container-push IMG=<your-registry>/<img-repo>/kube-copilot-agent:<tag>
-
-# Agent container (GitHub Copilot CLI wrapper)
-make container-build-agent container-push-agent AGENT_IMG=<your-registry>/<img-repo>/kube-copilot-agent:<tag>
-
-# Web UI
-make container-build-ui container-push-ui UI_IMG=<your-registry>/<img-repo>/kube-copilot-agent:<tag>
-```
-
-### 4. Deploy the operator
-
-```sh
-make deploy
-```
-
-### 5. Create credentials
+### Step 2 — Create credentials
 
 Create a secret with your GitHub PAT:
 
@@ -133,47 +124,146 @@ kubectl create secret generic cluster-kubeconfig \
   -n kube-copilot-agent
 ```
 
-### 6. Create skills and agent instructions ConfigMaps
+---
+
+### Step 3 — Deploy the GitHub Copilot agent
+
+The `github-copilot-agent` chart creates the `KubeCopilotAgent` CR, a GitHub token Secret, and ConfigMaps for skills and `AGENT.md`. Default skills (monitor, deploy, troubleshoot) and a SysAdmin persona are included out of the box.
+
+**Minimal install** (uses built-in skills and AGENT.md):
 
 ```sh
-kubectl apply -f config/samples/skills-configmap.yaml
-kubectl apply -f config/samples/agent-md-configmap.yaml
+helm upgrade --install my-agent ./helm/github-copilot-agent \
+  --namespace kube-copilot-agent \
+  --set githubToken.value=<your-pat>
 ```
 
-### 7. Deploy an agent
+**With an existing token secret:**
 
 ```sh
-kubectl apply -f config/samples/agent_v1_kubecopilotagent.yaml
+helm upgrade --install my-agent ./helm/github-copilot-agent \
+  --namespace kube-copilot-agent \
+  --set githubToken.existingSecret=github-token
 ```
 
-Example `KubeCopilotAgent`:
+**With a kubeconfig secret** (so the agent can talk to the cluster):
+
+```sh
+helm upgrade --install my-agent ./helm/github-copilot-agent \
+  --namespace kube-copilot-agent \
+  --set githubToken.existingSecret=github-token \
+  --set kubeconfigSecretRef=cluster-kubeconfig
+```
+
+**Custom skills and AGENT.md** via a values file:
 
 ```yaml
-apiVersion: kubecopilot.io/v1
-kind: KubeCopilotAgent
-metadata:
-  name: github-copilot-agent
-  namespace: kube-copilot-agent
-spec:
-  image: quay.io/gfontana/kube-github-copilot-agent-server:v1.0
-  githubTokenSecretRef:
-    name: github-token
-  kubeconfigSecretRef:       # optional
-    name: cluster-kubeconfig
-  skillsConfigMap: copilot-skills
-  agentConfigMap: copilot-agent-md
-  storageSize: "1Gi"
+# my-agent-values.yaml
+name: my-agent
+githubToken:
+  existingSecret: github-token
+
+kubeconfigSecretRef: cluster-kubeconfig
+
+createSkillsConfigMap: true
+skillsContent:
+  my-skill.md: |
+    ---
+    name: my-skill
+    description: Does something useful
+    ---
+    # My Skill
+    ...
+
+createAgentConfigMap: true
+agentContent:
+  AGENT.md: |
+    # My Agent
+    You are a helpful Kubernetes assistant.
 ```
-
-The operator creates a Pod and Service for the agent automatically.
-
-### 8. Deploy the Web UI
 
 ```sh
-make deploy-ui
+helm upgrade --install my-agent ./helm/github-copilot-agent \
+  --namespace kube-copilot-agent \
+  -f my-agent-values.yaml
 ```
 
-Access via the OpenShift Route or expose the service manually on plain Kubernetes.
+**Key agent values:**
+
+| Value | Default | Description |
+|---|---|---|
+| `name` | `github-copilot-agent` | Name of the `KubeCopilotAgent` CR |
+| `namespace` | `kube-copilot-agent` | Target namespace |
+| `githubToken.value` | `""` | PAT value (creates a new Secret) |
+| `githubToken.existingSecret` | `""` | Reference an existing Secret |
+| `githubToken.secretKey` | `GITHUB_TOKEN` | Key inside the secret |
+| `image` | `""` | Override the agent container image |
+| `storageSize` | `1Gi` | PVC size for session history |
+| `kubeconfigSecretRef` | `""` | Existing Secret name with a kubeconfig |
+| `createSkillsConfigMap` | `true` | Create a skills ConfigMap from `skillsContent` |
+| `skillsConfigMap` | `""` | Reference an existing skills ConfigMap |
+| `createAgentConfigMap` | `true` | Create an AGENT.md ConfigMap from `agentContent` |
+| `agentConfigMap` | `""` | Reference an existing AGENT.md ConfigMap |
+
+Wait for the agent to become ready:
+
+```sh
+kubectl get kubecopilotagent my-agent -n kube-copilot-agent -w
+```
+
+---
+
+### Step 4 — Deploy the Web UI
+
+```sh
+helm upgrade --install kube-copilot-ui ./helm/kube-copilot-ui \
+  --namespace kube-copilot-agent
+```
+
+**On OpenShift** (creates a Route with TLS):
+
+```sh
+helm upgrade --install kube-copilot-ui ./helm/kube-copilot-ui \
+  --namespace kube-copilot-agent \
+  --set route.enabled=true
+```
+
+Then get the URL:
+
+```sh
+kubectl get route kube-copilot-ui -n kube-copilot-agent -o jsonpath='{.spec.host}'
+```
+
+**On plain Kubernetes** (port-forward):
+
+```sh
+kubectl port-forward svc/kube-copilot-ui 8080:80 -n kube-copilot-agent
+# Open: http://localhost:8080
+```
+
+**Key UI values:**
+
+| Value | Default | Description |
+|---|---|---|
+| `namespace` | `kube-copilot-agent` | Namespace to deploy into |
+| `image.repository` | `quay.io/gfontana/kube-copilot-agent-ui` | UI image |
+| `image.tag` | `v1.0` | UI image tag |
+| `operatorNamespace` | `kube-copilot-agent` | Namespace the UI watches for agents |
+| `commandTimeout` | `300` | Seconds to wait for an agent response |
+| `imagePullSecret` | `""` | Pull secret name (for private registries) |
+| `rbac.create` | `true` | Create Role/RoleBinding |
+| `route.enabled` | `false` | Create an OpenShift Route |
+| `route.timeout` | `360s` | HAProxy timeout for SSE streams |
+
+---
+
+### Uninstall
+
+```sh
+helm uninstall kube-copilot-ui      --namespace kube-copilot-agent
+helm uninstall my-agent             --namespace kube-copilot-agent
+helm uninstall kube-copilot-agent   --namespace kube-copilot-agent
+```
 
 ---
 
@@ -583,6 +673,17 @@ config/
 ---
 
 ## Uninstall
+
+**Via Helm** (recommended):
+
+```sh
+helm uninstall kube-copilot-ui      --namespace kube-copilot-agent
+helm uninstall my-agent             --namespace kube-copilot-agent
+helm uninstall kube-copilot-agent   --namespace kube-copilot-agent
+kubectl delete namespace kube-copilot-agent
+```
+
+**Via kustomize** (development/CI):
 
 ```sh
 kubectl delete -k config/samples/

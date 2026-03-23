@@ -1,0 +1,17 @@
+apiVersion: v2
+name: kube-copilot-ui
+description: Web UI for interacting with kube-copilot-agent instances
+type: application
+version: 0.1.0
+appVersion: "v1.0"
+keywords:
+  - github-copilot
+  - ai
+  - agent
+  - kubernetes
+  - web-ui
+home: https://github.com/gfontana/kube-copilot-agent
+sources:
+  - https://github.com/gfontana/kube-copilot-agent
+maintainers:
+  - name: gfontana

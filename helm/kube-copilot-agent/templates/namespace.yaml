@@ -1,0 +1,9 @@
+{{- if .Values.createNamespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels:
+    {{- include "kube-copilot-agent.labels" . | nindent 4 }}
+    control-plane: controller-manager
+{{- end }}

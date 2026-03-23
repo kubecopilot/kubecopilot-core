@@ -1,0 +1,350 @@
+# Name of the KubeCopilotAgent resource
+name: github-copilot-agent
+
+# Namespace where the agent will be deployed
+# Must match the namespace where the kube-copilot-agent operator is running
+namespace: kube-copilot-agent
+
+# GitHub token configuration.
+# Either provide the token directly (a Secret will be created) or reference an existing Secret.
+githubToken:
+  # Set this to create a new Secret with the token value.
+  # WARNING: avoid committing real tokens — use --set githubToken.value=<token> at install time.
+  value: ""
+  # Reference an existing Secret instead of creating one.
+  # If existingSecret is set, githubToken.value is ignored.
+  existingSecret: ""
+  # Key inside the secret that holds the token value.
+  secretKey: "GITHUB_TOKEN"
+
+# Agent container image.
+# Leave empty to use the operator's default image.
+image: ""
+
+# Storage size for the agent's persistent volume (session history).
+storageSize: "1Gi"
+
+# Kubeconfig Secret reference.
+# Name of an existing Secret containing a kubeconfig file.
+# If set, the operator mounts this secret so the agent can talk to the cluster.
+# Leave empty to use the in-cluster service account credentials.
+kubeconfigSecretRef: ""
+
+# Skills ConfigMap.
+# Set createSkillsConfigMap=true to have this chart create a ConfigMap from skillsContent.
+# Set skillsConfigMap to reference an existing ConfigMap instead.
+skillsConfigMap: ""
+createSkillsConfigMap: true
+# Each key becomes a skill file mounted inside the agent pod.
+# The key name (without .md) is used as the skill name.
+skillsContent:
+  monitor.md: |
+    ---
+    name: monitor
+    description: >
+      Monitor the health and performance of Kubernetes and OpenShift clusters.
+      Covers node status, pod health, resource utilization, events, and alerts.
+    ---
+
+    # Cluster Monitoring
+
+    Use this skill to assess the overall health of the cluster and its workloads.
+
+    ## 1. Cluster-Wide Health Check
+
+    Run this sequence to get a full picture:
+
+    ```bash
+    # Active context and cluster info
+    kubectl config current-context
+    kubectl cluster-info
+
+    # Node status and resource pressure
+    kubectl get nodes -o wide
+    kubectl describe nodes | grep -A5 "Conditions:"
+    kubectl top nodes
+
+    # Unhealthy pods across all namespaces
+    kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded \
+      | grep -v Completed
+
+    # Recent warning events (last 30 min)
+    kubectl get events -A --field-selector=type=Warning \
+      --sort-by='.lastTimestamp' | tail -40
+    ```
+
+    ## 2. Namespace / Project Health
+
+    ```bash
+    # All resources in a namespace
+    kubectl get all -n <namespace>
+
+    # Pod resource consumption
+    kubectl top pods -n <namespace> --sort-by=memory
+
+    # CrashLoopBackOff / OOMKilled pods
+    kubectl get pods -n <namespace> | grep -E "CrashLoop|OOMKilled|Error|Pending"
+
+    # Pod logs (last 100 lines, with timestamps)
+    kubectl logs -n <namespace> <pod> --tail=100 --timestamps
+
+    # Previous container logs (after crash)
+    kubectl logs -n <namespace> <pod> --previous --tail=100
+    ```
+
+    ## 3. OpenShift-Specific Monitoring
+
+    ```bash
+    # Cluster operators health
+    oc get clusteroperators
+
+    # Node conditions via MachineConfigPool
+    oc get mcp
+
+    # Monitoring stack (Prometheus/Alertmanager)
+    oc get pods -n openshift-monitoring
+
+    # Active alerts
+    oc exec -n openshift-monitoring alertmanager-main-0 -- \
+      amtool alert query --alertmanager.url=http://localhost:9093 2>/dev/null || \
+      echo "Use the OCP console Monitoring > Alerting tab"
+
+    # Router (ingress) status
+    oc get pods -n openshift-ingress
+    oc get ingresscontroller -n openshift-ingress-operator
+    ```
+
+    ## 4. Persistent Storage
+
+    ```bash
+    # PV/PVC status
+    kubectl get pv,pvc -A | grep -v Bound
+
+    # StorageClass availability
+    kubectl get sc
+    ```
+
+  deploy.md: |
+    ---
+    name: deploy
+    description: >
+      Deploy, update, and validate applications on Kubernetes and OpenShift.
+      Covers rollouts, image updates, scaling, health checks, and smoke tests.
+    ---
+
+    # Application Deployment & Testing
+
+    Use this skill to deploy applications, manage rollouts, and verify they are working.
+
+    ## 1. Pre-Deployment Checklist
+
+    Before deploying, always verify:
+
+    ```bash
+    # Confirm target context and namespace
+    kubectl config current-context
+    kubectl config get-contexts
+
+    # Namespace/project exists and has quota headroom
+    kubectl describe namespace <namespace> | grep -A10 "Resource Quotas"
+    kubectl top nodes   # ensure node capacity
+    ```
+
+    ## 2. Deploying a Manifest
+
+    ```bash
+    # Dry-run first (server-side)
+    kubectl apply -f <manifest.yaml> --dry-run=server
+
+    # Apply
+    kubectl apply -f <manifest.yaml>
+
+    # Watch rollout
+    kubectl rollout status deployment/<name> -n <namespace> --timeout=5m
+    ```
+
+    ## 3. Updating an Image
+
+    ```bash
+    # Kubernetes
+    kubectl set image deployment/<name> <container>=<image>:<tag> -n <namespace>
+    kubectl rollout status deployment/<name> -n <namespace>
+
+    # OpenShift (trigger ImageStream-based rollout)
+    oc tag <source-image>:<tag> <imagestream>:<tag> -n <namespace>
+    oc rollout latest dc/<name> -n <namespace>
+    ```
+
+    ## 4. Scaling
+
+    ```bash
+    # Scale deployment
+    kubectl scale deployment/<name> --replicas=<n> -n <namespace>
+
+    # HPA status
+    kubectl get hpa -n <namespace>
+    kubectl describe hpa/<name> -n <namespace>
+    ```
+
+    ## 5. Smoke Testing After Deployment
+
+    ```bash
+    # Check pods are Running and Ready
+    kubectl get pods -n <namespace> -l app=<label> -w
+
+    # Port-forward for local testing
+    kubectl port-forward svc/<service> 8080:80 -n <namespace>
+
+    # In-cluster curl test
+    kubectl run smoke-test --rm -it --restart=Never \
+      --image=curlimages/curl:latest -- \
+      curl -sf http://<service>.<namespace>.svc.cluster.local:<port>/health
+
+    # OpenShift Route test
+    ROUTE=$(oc get route <name> -n <namespace> -o jsonpath='{.spec.host}')
+    curl -sf https://$ROUTE/health
+    ```
+
+    ## 6. Rollback
+
+    ```bash
+    # View rollout history
+    kubectl rollout history deployment/<name> -n <namespace>
+
+    # Rollback to previous revision
+    kubectl rollout undo deployment/<name> -n <namespace>
+
+    # Rollback to specific revision
+    kubectl rollout undo deployment/<name> --to-revision=<n> -n <namespace>
+    ```
+
+  troubleshoot.md: |
+    ---
+    name: troubleshoot
+    description: >
+      Diagnose and resolve issues in Kubernetes and OpenShift clusters.
+      Covers CrashLoopBackOff, OOMKilled, Pending pods, networking, storage,
+      RBAC errors, and node problems.
+    ---
+
+    # Troubleshooting Guide
+
+    Use this skill to diagnose and fix issues in the cluster.
+
+    ## 1. Pod Not Starting (Pending / CrashLoopBackOff / Error)
+
+    ```bash
+    # Step 1: describe the pod — look at Events section
+    kubectl describe pod <pod> -n <namespace>
+
+    # Step 2: logs
+    kubectl logs <pod> -n <namespace> --tail=100
+    kubectl logs <pod> -n <namespace> --previous --tail=100
+
+    # Step 3: check resource requests vs node capacity
+    kubectl describe pod <pod> -n <namespace> | grep -A5 "Requests\|Limits"
+    kubectl top nodes
+    ```
+
+    ### Common causes:
+
+    | Symptom | Likely Cause | Fix |
+    |---------|-------------|-----|
+    | `Pending` – insufficient CPU/memory | Resource quota / no node capacity | Scale cluster or reduce requests |
+    | `ImagePullBackOff` | Wrong image tag or missing pull secret | Check image name; add imagePullSecret |
+    | `CrashLoopBackOff` | App crashes on start | Check logs with --previous |
+    | `OOMKilled` | Container exceeds memory limit | Increase memory limit or fix memory leak |
+    | `CreateContainerConfigError` | Missing ConfigMap or Secret | Check references in pod spec |
+
+    ## 2. Networking Issues
+
+    ```bash
+    # Service endpoints — if empty, label selector mismatch
+    kubectl get endpoints <service> -n <namespace>
+
+    # DNS resolution test
+    kubectl run dns-test --rm -it --restart=Never \
+      --image=busybox:1.36 -- nslookup <service>.<namespace>.svc.cluster.local
+
+    # OpenShift Route not working
+    oc describe route <name> -n <namespace>
+    oc get pods -n openshift-ingress
+    ```
+
+    ## 3. Node Issues
+
+    ```bash
+    # Node conditions
+    kubectl describe node <node> | grep -A10 "Conditions:"
+
+    # Drain node safely
+    kubectl cordon <node>
+    kubectl drain <node> --ignore-daemonsets --delete-emissary-data --timeout=5m
+    kubectl uncordon <node>
+    ```
+
+    ## 4. RBAC / Permission Errors
+
+    ```bash
+    # Check what a service account can do
+    kubectl auth can-i --list \
+      --as=system:serviceaccount:<namespace>:<sa-name> -n <namespace>
+    ```
+
+    ## 5. Gathering a Full Incident Report
+
+    ```bash
+    kubectl version --short
+    kubectl get nodes -o wide
+    kubectl get pods -A | grep -Ev "Running|Completed"
+    kubectl get events -A --field-selector=type=Warning \
+      --sort-by='.lastTimestamp' | tail -50
+    kubectl top nodes
+    kubectl top pods -A --sort-by=memory | head -20
+    ```
+
+# AGENT.md ConfigMap.
+# Set createAgentConfigMap=true to have this chart create a ConfigMap from agentContent.
+# Set agentConfigMap to reference an existing ConfigMap instead.
+agentConfigMap: ""
+createAgentConfigMap: true
+agentContent:
+  AGENT.md: |
+    # Kubernetes & OpenShift SysAdmin Agent
+
+    You are an expert Site Reliability Engineer and Systems Administrator specializing in
+    Kubernetes and OpenShift clusters. You have deep expertise in container orchestration,
+    cluster operations, application deployment, and incident response.
+
+    ## Identity & Role
+
+    - You are the primary sysadmin for a hybrid Kubernetes/OpenShift environment.
+    - You proactively identify issues before they become incidents.
+    - You follow GitOps and Infrastructure-as-Code principles wherever possible.
+    - You always prefer non-destructive actions first and ask for confirmation before
+      destructive operations (deleting resources, draining nodes, force-killing pods).
+
+    ## Behavior Guidelines
+
+    - **Be concise but complete**: give actionable answers with exact commands.
+    - **Show your reasoning**: briefly explain *why* before running a command.
+    - **Safety first**: never delete or modify critical resources without warning the user.
+    - **Context awareness**: always check which cluster/namespace/project you are in before acting.
+    - **Use the right tool**: prefer `oc` for OpenShift-specific resources (Routes, Projects,
+      DeploymentConfigs, ImageStreams) and `kubectl` for vanilla Kubernetes resources.
+    - **Least privilege**: suggest RBAC-scoped service accounts over cluster-admin.
+    - **Document findings**: summarize what you found and what you did at the end of each task.
+
+    ## Default Working Assumptions
+
+    - Multiple contexts may be available in `KUBECONFIG`; confirm the active context before acting.
+    - Production namespaces are any namespace prefixed with `prod-` or labeled `env=production`.
+      Always double-check before modifying them.
+    - System namespaces (`kube-system`, `openshift-*`, `default` on OCP) are sensitive —
+      read-only unless the user explicitly says otherwise.
+
+    ## Communication Style
+
+    - Use markdown for structured output (tables for pod/node status, code blocks for commands).
+    - When reporting cluster health, always include: node status, unhealthy pods, resource pressure.
+    - When an error occurs, always show the exact error, your diagnosis, and the remediation steps.

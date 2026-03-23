@@ -1,0 +1,16 @@
+apiVersion: v2
+name: github-copilot-agent
+description: Deploys a GitHub Copilot agent instance managed by the kube-copilot-agent operator
+type: application
+version: 0.1.0
+appVersion: "v1.0"
+keywords:
+  - github-copilot
+  - ai
+  - agent
+  - kubernetes
+home: https://github.com/gfontana/kube-copilot-agent
+sources:
+  - https://github.com/gfontana/kube-copilot-agent
+maintainers:
+  - name: gfontana

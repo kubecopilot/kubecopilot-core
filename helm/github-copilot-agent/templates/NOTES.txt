@@ -1,0 +1,22 @@
+GitHub Copilot Agent "{{ include "github-copilot-agent.fullname" . }}" has been deployed!
+
+Namespace: {{ .Values.namespace }}
+
+Wait for the agent to become Ready:
+  kubectl get kubecopilotagent {{ include "github-copilot-agent.fullname" . }} -n {{ .Values.namespace }} -w
+
+Once Running, send a message:
+  kubectl apply -f - <<EOF
+  apiVersion: kubecopilot.io/v1
+  kind: KubeCopilotSend
+  metadata:
+    name: my-question
+    namespace: {{ .Values.namespace }}
+  spec:
+    agentRef: {{ include "github-copilot-agent.fullname" . }}
+    message: "What can you help me with?"
+  EOF
+
+Check the response:
+  kubectl get kubecopilotsend my-question -n {{ .Values.namespace }} \
+    -o jsonpath='{.status.response}'

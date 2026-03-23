@@ -1,0 +1,11 @@
+{{- if .Values.createAgentConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "github-copilot-agent.fullname" . }}-agent
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "github-copilot-agent.labels" . | nindent 4 }}
+data:
+  {{- toYaml .Values.agentContent | nindent 2 }}
+{{- end }}

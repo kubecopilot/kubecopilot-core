@@ -1,0 +1,18 @@
+kube-copilot-ui has been deployed!
+
+Namespace:  {{ .Values.namespace }}
+Image:      {{ .Values.image.repository }}:{{ .Values.image.tag }}
+
+{{- if .Values.route.enabled }}
+
+Access the UI via the OpenShift Route:
+  kubectl get route {{ include "kube-copilot-ui.fullname" . }} -n {{ .Values.namespace }} \
+    -o jsonpath='{.spec.host}'
+
+{{- else }}
+
+Port-forward to access the UI locally:
+  kubectl port-forward svc/{{ include "kube-copilot-ui.fullname" . }} 8080:80 -n {{ .Values.namespace }}
+  Open: http://localhost:8080
+
+{{- end }}

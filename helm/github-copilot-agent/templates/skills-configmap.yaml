@@ -1,0 +1,11 @@
+{{- if .Values.createSkillsConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "github-copilot-agent.fullname" . }}-skills
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "github-copilot-agent.labels" . | nindent 4 }}
+data:
+  {{- toYaml .Values.skillsContent | nindent 2 }}
+{{- end }}

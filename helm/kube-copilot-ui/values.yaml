@@ -1,0 +1,47 @@
+# Namespace where the UI will be deployed.
+# Must match the namespace where the kube-copilot-agent operator is running.
+namespace: kube-copilot-agent
+
+image:
+  repository: quay.io/gfontana/kube-copilot-agent-ui
+  tag: "v1.0"
+  pullPolicy: Always
+
+replicaCount: 1
+
+# Namespace the UI backend will watch for KubeCopilotAgent resources.
+# Should match the operator namespace above.
+operatorNamespace: kube-copilot-agent
+
+# How long (seconds) the backend polls for a response before timing out.
+commandTimeout: "300"
+
+resources:
+  requests:
+    cpu: "50m"
+    memory: "64Mi"
+  limits:
+    cpu: "200m"
+    memory: "128Mi"
+
+# Image pull secret name (e.g. for private registries like quay.io).
+# Leave empty if the image is public or the secret is managed externally.
+imagePullSecret: ""
+
+rbac:
+  # Set to false to skip Role/RoleBinding creation (manage RBAC yourself).
+  create: true
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# OpenShift Route — set enabled: true on OpenShift clusters.
+route:
+  enabled: false
+  # HAProxy timeout to keep SSE streams alive.
+  timeout: "360s"
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

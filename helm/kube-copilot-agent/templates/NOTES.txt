@@ -1,0 +1,44 @@
+kube-copilot-agent has been deployed!
+
+Operator namespace: {{ .Values.namespace }}
+Operator image:     {{ .Values.image.repository }}:{{ .Values.image.tag }}
+Default agent image: {{ .Values.agentImage.repository }}:{{ .Values.agentImage.tag }}
+
+Next steps:
+
+1. Create a GitHub token secret:
+
+   kubectl create secret generic github-token \
+     --from-literal=GITHUB_TOKEN=<your-pat> \
+     -n {{ .Values.namespace }}
+
+2. Deploy an agent (or use the github-copilot-agent Helm chart):
+
+   kubectl apply -f - <<MANIFEST
+   apiVersion: kubecopilot.io/v1
+   kind: KubeCopilotAgent
+   metadata:
+     name: my-agent
+     namespace: {{ .Values.namespace }}
+   spec:
+     githubTokenSecretRef:
+       name: github-token
+   MANIFEST
+
+3. Send a message:
+
+   kubectl apply -f - <<MANIFEST
+   apiVersion: kubecopilot.io/v1
+   kind: KubeCopilotSend
+   metadata:
+     name: my-question
+     namespace: {{ .Values.namespace }}
+   spec:
+     agentRef: my-agent
+     message: "What is the health of this cluster?"
+   MANIFEST
+
+4. (Optional) Deploy the Web UI using the kube-copilot-ui Helm chart:
+
+   helm upgrade --install kube-copilot-ui ./helm/kube-copilot-ui \
+     --namespace {{ .Values.namespace }}

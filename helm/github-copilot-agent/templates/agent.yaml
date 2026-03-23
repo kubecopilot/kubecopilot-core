@@ -1,0 +1,26 @@
+apiVersion: kubecopilot.io/v1
+kind: KubeCopilotAgent
+metadata:
+  name: {{ include "github-copilot-agent.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "github-copilot-agent.labels" . | nindent 4 }}
+spec:
+  githubTokenSecretRef:
+    name: {{ include "github-copilot-agent.tokenSecretName" . }}
+  {{- if .Values.image }}
+  image: {{ .Values.image }}
+  {{- end }}
+  {{- if .Values.storageSize }}
+  storageSize: {{ .Values.storageSize }}
+  {{- end }}
+  {{- with (include "github-copilot-agent.skillsConfigMapName" .) }}
+  skillsConfigMap: {{ . }}
+  {{- end }}
+  {{- with (include "github-copilot-agent.agentConfigMapName" .) }}
+  agentConfigMap: {{ . }}
+  {{- end }}
+  {{- if .Values.kubeconfigSecretRef }}
+  kubeconfigSecretRef:
+    name: {{ .Values.kubeconfigSecretRef }}
+  {{- end }}

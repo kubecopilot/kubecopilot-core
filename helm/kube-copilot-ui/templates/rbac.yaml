@@ -1,0 +1,41 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kube-copilot-ui.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "kube-copilot-ui.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["kubecopilot.io"]
+    resources: ["kubecopilotagents"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kubecopilot.io"]
+    resources: ["kubecopilotsends"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: ["kubecopilot.io"]
+    resources: ["kubecopilotresponses"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: ["kubecopilot.io"]
+    resources: ["kubecopilotchunks"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: ["kubecopilot.io"]
+    resources: ["kubecopilotcancels"]
+    verbs: ["get", "list", "watch", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kube-copilot-ui.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "kube-copilot-ui.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kube-copilot-ui.serviceAccountName" . }}
+    namespace: {{ .Values.namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "kube-copilot-ui.fullname" . }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

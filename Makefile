@@ -147,6 +147,24 @@ container-push-ui: ## Push web UI container image
 deploy-ui: ## Deploy the web UI via Kustomize
 	kubectl apply -k ./web-ui/deploy/base/
 
+HELM_RELEASE ?= kube-copilot-agent
+HELM_NAMESPACE ?= kube-copilot-agent
+
+.PHONY: helm-install
+helm-install: ## Install the operator using the Helm chart
+	helm upgrade --install $(HELM_RELEASE) ./helm/kube-copilot-agent \
+		--namespace $(HELM_NAMESPACE) --create-namespace \
+		--set image.repository=$(shell echo $(IMG) | cut -d: -f1) \
+		--set image.tag=$(shell echo $(IMG) | cut -d: -f2)
+
+.PHONY: helm-uninstall
+helm-uninstall: ## Uninstall the Helm release
+	helm uninstall $(HELM_RELEASE) --namespace $(HELM_NAMESPACE)
+
+.PHONY: helm-template
+helm-template: ## Render Helm chart templates to stdout
+	helm template $(HELM_RELEASE) ./helm/kube-copilot-agent --namespace $(HELM_NAMESPACE)
+
 .PHONY: undeploy-ui
 undeploy-ui: ## Undeploy the web UI via Kustomize
 	kubectl delete -k ./web-ui/deploy/base/

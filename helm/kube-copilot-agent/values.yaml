@@ -1,0 +1,51 @@
+# Default values for kube-copilot-agent Helm chart.
+
+## @section Global
+nameOverride: ""
+fullnameOverride: ""
+
+## Namespace to deploy into. Creates the namespace if it doesn't exist.
+namespace: kube-copilot-agent
+createNamespace: true
+
+## @section Operator image
+image:
+  repository: quay.io/gfontana/kube-copilot-agent
+  tag: "v1.0"
+  pullPolicy: Always
+
+## @section Operator deployment
+replicaCount: 1
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+## @section Agent defaults
+## Default agent container image used when a KubeCopilotAgent does not specify .spec.image
+agentImage:
+  repository: quay.io/gfontana/kube-github-copilot-agent-server
+  tag: "v1.0"
+
+## @section RBAC
+rbac:
+  ## Set to false to skip ClusterRole/ClusterRoleBinding creation (manage RBAC yourself)
+  create: true
+
+## @section ServiceAccount
+serviceAccount:
+  ## Set to false to use an existing service account
+  create: true
+  name: ""
+  annotations: {}
+
+## @section Leader election
+leaderElect: true
+
+## @section CRD installation
+## Set to false to skip CRD installation (e.g. if you manage CRDs separately)
+installCRDs: true
