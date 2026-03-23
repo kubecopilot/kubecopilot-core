@@ -34,7 +34,7 @@ import (
 )
 
 // namespace where the project is deployed in
-const namespace = "kube-copilot-agent-system"
+const namespace = "kube-copilot-agent"
 
 // serviceAccountName created for the project
 const serviceAccountName = "kube-copilot-agent-controller-manager"
