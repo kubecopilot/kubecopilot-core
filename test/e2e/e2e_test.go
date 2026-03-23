@@ -72,6 +72,14 @@ var _ = Describe("Manager", Ordered, func() {
 		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", managerImage))
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+
+		By("patching imagePullPolicy to IfNotPresent for Kind e2e")
+		cmd = exec.Command("kubectl", "patch", "deployment", "kube-copilot-agent-controller-manager",
+			"-n", namespace,
+			"--type=json",
+			`-p=[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]`)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to patch imagePullPolicy")
 	})
 
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
