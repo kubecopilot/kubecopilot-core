@@ -57,6 +57,12 @@ type asyncChatResponse struct {
 	Status  string `json:"status"`
 }
 
+const (
+	phaseDone    = "Done"
+	phaseError   = "Error"
+	phaseRunning = "Running"
+)
+
 func (r *KubeCopilotSendReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -66,19 +72,19 @@ func (r *KubeCopilotSendReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Idempotent: skip if already terminal
-	if send.Status.Phase == "Done" || send.Status.Phase == "Error" {
+	if send.Status.Phase == phaseDone || send.Status.Phase == phaseError {
 		return ctrl.Result{}, nil
 	}
 
 	agent := &agentv1.KubeCopilotAgent{}
 	if err := r.Get(ctx, types.NamespacedName{Name: send.Spec.AgentRef, Namespace: send.Namespace}, agent); err != nil {
 		log.Error(err, "failed to get agent", "agentRef", send.Spec.AgentRef)
-		send.Status.Phase = "Error"
+		send.Status.Phase = phaseError
 		send.Status.ErrorMessage = fmt.Sprintf("agent not found: %v", err)
 		return ctrl.Result{}, r.Status().Update(ctx, send)
 	}
 
-	if agent.Status.Phase != "Running" {
+	if agent.Status.Phase != phaseRunning {
 		log.Info("agent not running, requeueing", "agentPhase", agent.Status.Phase)
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
@@ -101,26 +107,26 @@ func (r *KubeCopilotSendReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		log.Error(err, "failed to call agent asyncchat")
-		send.Status.Phase = "Error"
+		send.Status.Phase = phaseError
 		send.Status.ErrorMessage = err.Error()
 		return ctrl.Result{}, r.Status().Update(ctx, send)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		send.Status.Phase = "Error"
+		send.Status.Phase = phaseError
 		send.Status.ErrorMessage = fmt.Sprintf("agent returned status %d", resp.StatusCode)
 		return ctrl.Result{}, r.Status().Update(ctx, send)
 	}
 
 	var asyncResp asyncChatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&asyncResp); err != nil {
-		send.Status.Phase = "Error"
+		send.Status.Phase = phaseError
 		send.Status.ErrorMessage = fmt.Sprintf("failed to decode response: %v", err)
 		return ctrl.Result{}, r.Status().Update(ctx, send)
 	}
 
-	send.Status.Phase = "Done"
+	send.Status.Phase = phaseDone
 	send.Status.QueueID = asyncResp.QueueID
 	return ctrl.Result{}, r.Status().Update(ctx, send)
 }

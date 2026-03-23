@@ -98,7 +98,7 @@ func (r *KubeCopilotMessageReconciler) Reconcile(ctx context.Context, req ctrl.R
 		cmd.Status.ErrorMessage = err.Error()
 		return ctrl.Result{}, r.Status().Update(ctx, cmd)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		cmd.Status.Phase = "Error"

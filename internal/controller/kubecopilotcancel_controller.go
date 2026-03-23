@@ -98,7 +98,7 @@ func (r *KubeCopilotCancelReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		cancel.Status.ErrorMessage = err.Error()
 		return ctrl.Result{}, r.Status().Update(ctx, cancel)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
 		cancel.Status.Phase = "Error"
