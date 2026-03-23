@@ -133,19 +133,43 @@ func IsCertManagerCRDsInstalled() bool {
 	return false
 }
 
-// LoadImageToKindClusterWithName loads a local docker image to the kind cluster
+// LoadImageToKindClusterWithName loads a local container image to the kind cluster.
+// It saves the image to a temporary tar archive using the configured container tool
+// (docker or podman) and then loads it into Kind via --image-archive, so it works
+// with both Docker and Podman.
 func LoadImageToKindClusterWithName(name string) error {
 	cluster := defaultKindCluster
 	if v, ok := os.LookupEnv("KIND_CLUSTER"); ok {
 		cluster = v
 	}
-	kindOptions := []string{"load", "docker-image", name, "--name", cluster}
 	kindBinary := defaultKindBinary
 	if v, ok := os.LookupEnv("KIND"); ok {
 		kindBinary = v
 	}
+
+	// Determine container tool (docker or podman)
+	containerTool := "docker"
+	if v, ok := os.LookupEnv("CONTAINER_TOOL"); ok {
+		containerTool = v
+	}
+
+	// Save image to a temp tar file
+	tmpFile, err := os.CreateTemp("", "kind-image-*.tar")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_ = tmpFile.Close()
+
+	saveCmd := exec.Command(containerTool, "save", "-o", tmpFile.Name(), name)
+	if _, err = Run(saveCmd); err != nil {
+		return fmt.Errorf("failed to save image %s: %w", name, err)
+	}
+
+	// Load into Kind via archive
+	kindOptions := []string{"load", "image-archive", tmpFile.Name(), "--name", cluster}
 	cmd := exec.Command(kindBinary, kindOptions...)
-	_, err := Run(cmd)
+	_, err = Run(cmd)
 	return err
 }
 

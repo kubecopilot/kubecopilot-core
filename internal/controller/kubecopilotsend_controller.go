@@ -57,12 +57,6 @@ type asyncChatResponse struct {
 	Status  string `json:"status"`
 }
 
-const (
-	phaseDone    = "Done"
-	phaseError   = "Error"
-	phaseRunning = "Running"
-)
-
 func (r *KubeCopilotSendReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 

@@ -92,12 +92,12 @@ func (r *KubeCopilotAgentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	pod := &corev1.Pod{}
 	if err := r.Get(ctx, types.NamespacedName{Name: podName, Namespace: agent.Namespace}, pod); err == nil {
-		phase := "Pending"
+		phase := phasePending
 		switch pod.Status.Phase {
 		case corev1.PodRunning:
-			phase = "Running"
+			phase = phaseRunning
 		case corev1.PodFailed:
-			phase = "Error"
+			phase = phaseError
 		}
 		agent.Status.Phase = phase
 		agent.Status.ServiceName = svcName
@@ -105,7 +105,7 @@ func (r *KubeCopilotAgentReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			return ctrl.Result{}, err
 		}
 		// Requeue until the pod is Running so the phase gets updated
-		if phase == "Pending" {
+		if phase == phasePending {
 			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		}
 	}
