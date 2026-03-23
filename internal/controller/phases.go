@@ -1,9 +1,9 @@
 package controller
 
 const (
-phasePending   = "Pending"
-phaseRunning   = "Running"
-phaseDone      = "Done"
-phaseError     = "Error"
-phaseCancelled = "Cancelled"
+	phasePending   = "Pending"
+	phaseRunning   = "Running"
+	phaseDone      = "Done"
+	phaseError     = "Error"
+	phaseCancelled = "Cancelled"
 )

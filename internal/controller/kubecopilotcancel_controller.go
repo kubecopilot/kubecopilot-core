@@ -50,7 +50,7 @@ func (r *KubeCopilotCancelReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	// Idempotent: skip if already terminal
-	if cancel.Status.Phase == "Cancelled" || cancel.Status.Phase == "Error" {
+	if cancel.Status.Phase == phaseCancelled || cancel.Status.Phase == phaseError {
 		return ctrl.Result{}, nil
 	}
 
@@ -58,7 +58,7 @@ func (r *KubeCopilotCancelReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	send := &agentv1.KubeCopilotSend{}
 	if err := r.Get(ctx, types.NamespacedName{Name: cancel.Spec.SendRef, Namespace: cancel.Namespace}, send); err != nil {
 		log.Error(err, "failed to get KubeCopilotSend", "sendRef", cancel.Spec.SendRef)
-		cancel.Status.Phase = "Error"
+		cancel.Status.Phase = phaseError
 		cancel.Status.ErrorMessage = fmt.Sprintf("send not found: %v", err)
 		return ctrl.Result{}, r.Status().Update(ctx, cancel)
 	}
@@ -74,7 +74,7 @@ func (r *KubeCopilotCancelReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	agent := &agentv1.KubeCopilotAgent{}
 	if err := r.Get(ctx, types.NamespacedName{Name: cancel.Spec.AgentRef, Namespace: cancel.Namespace}, agent); err != nil {
 		log.Error(err, "failed to get agent", "agentRef", cancel.Spec.AgentRef)
-		cancel.Status.Phase = "Error"
+		cancel.Status.Phase = phaseError
 		cancel.Status.ErrorMessage = fmt.Sprintf("agent not found: %v", err)
 		return ctrl.Result{}, r.Status().Update(ctx, cancel)
 	}
@@ -86,7 +86,7 @@ func (r *KubeCopilotCancelReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
-		cancel.Status.Phase = "Error"
+		cancel.Status.Phase = phaseError
 		cancel.Status.ErrorMessage = err.Error()
 		return ctrl.Result{}, r.Status().Update(ctx, cancel)
 	}
@@ -94,20 +94,20 @@ func (r *KubeCopilotCancelReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		log.Error(err, "failed to POST cancel to agent", "url", url)
-		cancel.Status.Phase = "Error"
+		cancel.Status.Phase = phaseError
 		cancel.Status.ErrorMessage = err.Error()
 		return ctrl.Result{}, r.Status().Update(ctx, cancel)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
-		cancel.Status.Phase = "Error"
+		cancel.Status.Phase = phaseError
 		cancel.Status.ErrorMessage = fmt.Sprintf("agent returned status %d", resp.StatusCode)
 		return ctrl.Result{}, r.Status().Update(ctx, cancel)
 	}
 
 	log.Info("cancelled agent request", "sendRef", cancel.Spec.SendRef, "queueID", queueID)
-	cancel.Status.Phase = "Cancelled"
+	cancel.Status.Phase = phaseCancelled
 	return ctrl.Result{}, r.Status().Update(ctx, cancel)
 }
 
