@@ -5,7 +5,7 @@ plugin:
   description: "KubeCopilot AI Agent Console Plugin"
   # Container image for the built console plugin (nginx serving static assets)
   image: ""
-  imagePullPolicy: IfNotPresent
+  imagePullPolicy: Always
   imagePullSecrets: []
   replicas: 2
   port: 9443
@@ -61,4 +61,6 @@ webUI:
   # Service name of the KubeCopilot Web UI (in the same or different namespace)
   serviceName: kube-copilot-ui
   serviceNamespace: ""  # defaults to release namespace
-  servicePort: 8000
+  servicePort: 80
+  # External Route URL of the KubeCopilot Web UI (used in iframe)
+  routeUrl: ""

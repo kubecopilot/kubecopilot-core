@@ -9,23 +9,21 @@
     }
   },
   {
-    "type": "console.navigation/href",
+    "type": "console.navigation/section",
     "properties": {
-      "id": "kube-copilot",
-      "name": "KubeCopilot AI",
-      "href": "/kube-copilot",
+      "id": "kube-copilot-section",
       "perspective": "admin",
-      "section": "home"
+      "name": "KubeCopilot AI"
     }
   },
   {
     "type": "console.navigation/href",
     "properties": {
-      "id": "kube-copilot-dev",
-      "name": "KubeCopilot AI",
+      "id": "kube-copilot-chat",
+      "name": "Chat",
       "href": "/kube-copilot",
-      "perspective": "dev",
-      "section": "home"
+      "perspective": "admin",
+      "section": "kube-copilot-section"
     }
   }
 ]

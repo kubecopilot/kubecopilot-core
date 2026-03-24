@@ -20,5 +20,11 @@ data:
         ssl_certificate     /var/cert/tls.crt;
         ssl_certificate_key /var/cert/tls.key;
         root                /usr/share/nginx/html;
+
+        location = /plugin-config.json {
+          default_type application/json;
+          add_header Access-Control-Allow-Origin "*";
+          return 200 '{"webUIUrl":"{{ .Values.webUI.routeUrl }}"}';
+        }
       }
     }
