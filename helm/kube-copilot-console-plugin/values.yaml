@@ -1,0 +1,64 @@
+---
+plugin:
+  # Name of the ConsolePlugin resource (must match package.json consolePlugin.name)
+  name: kube-copilot-console-plugin
+  description: "KubeCopilot AI Agent Console Plugin"
+  # Container image for the built console plugin (nginx serving static assets)
+  image: ""
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+  replicas: 2
+  port: 9443
+  securityContext:
+    enabled: true
+  podSecurityContext:
+    enabled: true
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    enabled: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  resources:
+    requests:
+      cpu: 10m
+      memory: 50Mi
+  basePath: /
+  certificateSecretName: ""
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  patcherServiceAccount:
+    create: true
+    annotations: {}
+    name: ""
+  jobs:
+    patchConsoles:
+      enabled: true
+      image: "registry.redhat.io/openshift4/ose-tools-rhel9@sha256:ee65b244fc94d5765514c604dc0a288517dcdce68de65128d047622b6b30a618"
+      podSecurityContext:
+        enabled: true
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containerSecurityContext:
+        enabled: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+      resources:
+        requests:
+          cpu: 10m
+          memory: 50Mi
+
+# KubeCopilot Web UI service reference (used for proxy configuration)
+webUI:
+  # Service name of the KubeCopilot Web UI (in the same or different namespace)
+  serviceName: kube-copilot-ui
+  serviceNamespace: ""  # defaults to release namespace
+  servicePort: 8000

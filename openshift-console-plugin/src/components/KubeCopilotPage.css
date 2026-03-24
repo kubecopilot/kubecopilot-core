@@ -1,0 +1,44 @@
+/* KubeCopilot Console Plugin — page layout */
+
+.kube-copilot-plugin {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  /* Fill the OpenShift Console content area */
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.kube-copilot-plugin__iframe {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+}
+
+.kube-copilot-plugin__loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 1rem;
+}
+
+.kube-copilot-plugin__loading p {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+
+.kube-copilot-plugin__error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}

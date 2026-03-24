@@ -1,0 +1,53 @@
+{{- if .Values.plugin.jobs.patchConsoles.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ template "kube-copilot-console-plugin.patcherName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kube-copilot-console-plugin.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    "helm.sh/hook-weight": "1"
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "kube-copilot-console-plugin.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ template "kube-copilot-console-plugin.patcherServiceAccountName" . }}
+      restartPolicy: Never
+      containers:
+        - name: patch
+          image: {{ .Values.plugin.jobs.patchConsoles.image }}
+          {{- if and (.Values.plugin.jobs.patchConsoles.containerSecurityContext.enabled) (.Values.plugin.jobs.patchConsoles.containerSecurityContext) }}
+          securityContext: {{ tpl (toYaml (omit .Values.plugin.jobs.patchConsoles.containerSecurityContext "enabled")) $ | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.plugin.jobs.patchConsoles.resources | nindent 12 }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              echo "Enabling console plugin {{ template "kube-copilot-console-plugin.name" . }}..."
+              declare -r plugin_name="{{ template "kube-copilot-console-plugin.name" . }}"
+
+              for console in $(oc get consoles.operator.openshift.io -o name); do
+                current_plugins=$(oc get "$console" -o jsonpath='{.spec.plugins}' 2>/dev/null)
+                if echo "$current_plugins" | grep -q "$plugin_name"; then
+                  echo "Plugin already enabled in $console"
+                else
+                  oc patch "$console" --type=json \
+                    -p "[{\"op\": \"add\", \"path\": \"/spec/plugins/-\", \"value\": \"$plugin_name\"}]" \
+                    2>/dev/null || \
+                  oc patch "$console" --type=merge \
+                    -p "{\"spec\":{\"plugins\":[\"$plugin_name\"]}}"
+                  echo "Enabled plugin in $console"
+                fi
+              done
+              echo "Done."
+      {{- if and (.Values.plugin.jobs.patchConsoles.podSecurityContext.enabled) (.Values.plugin.jobs.patchConsoles.podSecurityContext) }}
+      securityContext: {{ tpl (toYaml (omit .Values.plugin.jobs.patchConsoles.podSecurityContext "enabled")) $ | nindent 8 }}
+      {{- end }}
+{{- end }}

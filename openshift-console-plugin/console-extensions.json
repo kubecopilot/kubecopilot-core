@@ -1,0 +1,31 @@
+// This file is parsed as JSONC (JSON with Comments)
+[
+  {
+    "type": "console.page/route",
+    "properties": {
+      "exact": true,
+      "path": "/kube-copilot",
+      "component": { "$codeRef": "KubeCopilotPage" }
+    }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "kube-copilot",
+      "name": "KubeCopilot AI",
+      "href": "/kube-copilot",
+      "perspective": "admin",
+      "section": "home"
+    }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "kube-copilot-dev",
+      "name": "KubeCopilot AI",
+      "href": "/kube-copilot",
+      "perspective": "dev",
+      "section": "home"
+    }
+  }
+]

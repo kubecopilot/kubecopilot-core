@@ -334,11 +334,79 @@ kubectl port-forward svc/kube-copilot-ui 8080:80 -n kube-copilot-agent
 | `route.enabled` | `false` | Create an OpenShift Route |
 | `route.timeout` | `360s` | HAProxy timeout for SSE streams |
 
+### Step 5 — (Optional) Deploy the OpenShift Console Plugin
+
+If you're running on **OpenShift**, you can embed the KubeCopilot UI directly inside the OpenShift Web Console as a [dynamic plugin](https://github.com/openshift/console/tree/main/frontend/packages/console-dynamic-plugin-sdk).
+
+```mermaid
+graph LR
+    subgraph ocp["OpenShift Console"]
+        nav["🧭 Navigation<br/><sub>Home → KubeCopilot AI</sub>"]
+        page["📄 Plugin Page<br/><sub>React component</sub>"]
+    end
+
+    subgraph plugin["Console Plugin Pod"]
+        nginx["nginx<br/><sub>serves JS/CSS assets</sub>"]
+    end
+
+    subgraph webui["Web UI Pod"]
+        fastapi["FastAPI<br/><sub>chat API + static HTML</sub>"]
+    end
+
+    nav --> page
+    page --> |"iframe ?embedded=true"| fastapi
+    ocp --> |"module federation"| nginx
+
+    style ocp fill:#1a1a2e,stroke:#00bcd4,color:#e0e0e0
+    style plugin fill:#16213e,stroke:#e94560,color:#e0e0e0
+    style webui fill:#0f3460,stroke:#ffc107,color:#e0e0e0
+```
+
+**Build the plugin image:**
+
+```sh
+cd openshift-console-plugin
+podman build -t quay.io/yourorg/kube-copilot-console-plugin:latest .
+podman push quay.io/yourorg/kube-copilot-console-plugin:latest
+```
+
+**Install via Helm:**
+
+```sh
+helm upgrade --install kube-copilot-console-plugin ./helm/kube-copilot-console-plugin \
+  --namespace kube-copilot-agent \
+  --set plugin.image=quay.io/yourorg/kube-copilot-console-plugin:latest \
+  --set webUI.serviceName=kube-copilot-ui \
+  --set webUI.servicePort=8000
+```
+
+After installation, refresh the OpenShift Console — a new **"KubeCopilot AI"** nav item appears under **Home** in both the Administrator and Developer perspectives.
+
+**How it works:**
+1. A `ConsolePlugin` CR registers the plugin with the OpenShift Console operator
+2. A post-install Job patches the Console operator config to enable the plugin
+3. The plugin page loads the existing Web UI inside an iframe with `?embedded=true`
+4. In embedded mode, the Web UI hides its own header and adjusts dimensions to fit the Console content area
+5. Theme sync: the plugin forwards OpenShift Console dark/light mode changes to the iframe via `postMessage`
+
+**Key Helm values:**
+
+| Value | Default | Description |
+|---|---|---|
+| `plugin.image` | *(required)* | Console plugin container image |
+| `plugin.name` | `kube-copilot-console-plugin` | Name of the `ConsolePlugin` CR |
+| `plugin.replicas` | `2` | Number of plugin pod replicas |
+| `plugin.port` | `9443` | HTTPS port for nginx (auto-TLS via serving cert) |
+| `webUI.serviceName` | `kube-copilot-ui` | Name of the KubeCopilot Web UI service |
+| `webUI.serviceNamespace` | *(release namespace)* | Namespace of the Web UI service |
+| `webUI.servicePort` | `8000` | Port of the Web UI service |
+
 ---
 
 ### Uninstall
 
 ```sh
+helm uninstall kube-copilot-console-plugin --namespace kube-copilot-agent  # if installed
 helm uninstall kube-copilot-ui      --namespace kube-copilot-agent
 helm uninstall my-agent             --namespace kube-copilot-agent
 helm uninstall kube-copilot-agent   --namespace kube-copilot-agent
@@ -864,6 +932,14 @@ graph LR
         h1["kube-copilot-agent/"]
         h2["github-copilot-agent/"]
         h3["kube-copilot-ui/"]
+        h4["kube-copilot-console-plugin/"]
+    end
+
+    subgraph consoleplugin["openshift-console-plugin/"]
+        cp_pkg["package.json<br/><sub>plugin metadata</sub>"]
+        cp_ext["console-extensions.json<br/><sub>nav + page extensions</sub>"]
+        cp_src["src/components/<br/><sub>KubeCopilotPage.tsx</sub>"]
+        cp_dock["Containerfile"]
     end
 
     types --> crds
@@ -878,6 +954,7 @@ graph LR
     style webui fill:#16213e,stroke:#e94560,color:#e0e0e0
     style config fill:#0f3460,stroke:#ffc107,color:#e0e0e0
     style helm_dir fill:#1a1a2e,stroke:#ffc107,color:#e0e0e0
+    style consoleplugin fill:#16213e,stroke:#4caf50,color:#e0e0e0
 ```
 
 | Directory | Purpose |
@@ -887,8 +964,9 @@ graph LR
 | `internal/webhook/` | HTTP server receiving chunks + responses from agent pod |
 | `agent-server-container/github-copilot/` | SDK-backed FastAPI server wrapping the Copilot CLI |
 | `web-ui/` | FastAPI backend + single-page chat UI with settings panel |
+| `openshift-console-plugin/` | OpenShift Console dynamic plugin (embeds Web UI in Console) |
 | `config/` | Generated CRDs, RBAC, manager manifests, samples |
-| `helm/` | Helm charts for operator, agent instance, and web UI |
+| `helm/` | Helm charts for operator, agent instance, web UI, and console plugin |
 
 ---
 
@@ -897,6 +975,7 @@ graph LR
 **Via Helm** (recommended):
 
 ```sh
+helm uninstall kube-copilot-console-plugin --namespace kube-copilot-agent  # if installed
 helm uninstall kube-copilot-ui      --namespace kube-copilot-agent
 helm uninstall my-agent             --namespace kube-copilot-agent
 helm uninstall kube-copilot-agent   --namespace kube-copilot-agent

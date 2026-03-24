@@ -357,6 +357,15 @@
       color: var(--pico-muted-color); font-size: 0.85rem; padding: 0.1rem 0.3rem;
     }
     .item-delete-btn:hover { color: #f07178; }
+
+    /* ── Embedded mode (OpenShift Console plugin) ── */
+    body.embedded .app-header { display: none; }
+    body.embedded .sidebar { width: 240px; min-width: 240px; }
+    body.embedded .layout { height: 100vh; }
+    body.embedded .settings-dialog { width: min(700px, 95vw); max-height: 90vh; }
+    body.embedded .bubble { max-width: min(80%, 720px); }
+    body.embedded .input-area { padding: 0.5rem 1rem; }
+    body.embedded .messages { padding: 0.75rem 1rem; }
   </style>
 </head>
 <body>
@@ -497,6 +506,22 @@
 </div>
 
 <script>
+// =============================================================
+// Embedded mode detection (OpenShift Console plugin)
+// =============================================================
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('embedded') === 'true') {
+    document.body.classList.add('embedded');
+  }
+  // Listen for theme changes from the parent frame (e.g. OpenShift Console)
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'theme-change') {
+      document.documentElement.setAttribute('data-theme', e.data.theme);
+    }
+  });
+})();
+
 // =============================================================
 // State
 // =============================================================

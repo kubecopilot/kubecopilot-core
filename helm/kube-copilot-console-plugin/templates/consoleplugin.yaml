@@ -1,0 +1,26 @@
+apiVersion: console.openshift.io/v1
+kind: ConsolePlugin
+metadata:
+  name: {{ template "kube-copilot-console-plugin.name" . }}
+  labels:
+    {{- include "kube-copilot-console-plugin.labels" . | nindent 4 }}
+spec:
+  displayName: {{ default "KubeCopilot AI Agent" .Values.plugin.description }}
+  i18n:
+    loadType: Preload
+  backend:
+    type: Service
+    service:
+      name: {{ template "kube-copilot-console-plugin.name" . }}
+      namespace: {{ .Release.Namespace }}
+      port: {{ .Values.plugin.port }}
+      basePath: {{ .Values.plugin.basePath }}
+  proxy:
+    - alias: web-ui
+      endpoint:
+        type: Service
+        service:
+          name: {{ .Values.webUI.serviceName }}
+          namespace: {{ include "kube-copilot-console-plugin.webUINamespace" . }}
+          port: {{ .Values.webUI.servicePort }}
+      authorize: true
