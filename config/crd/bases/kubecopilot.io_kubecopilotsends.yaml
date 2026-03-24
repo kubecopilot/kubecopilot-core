@@ -56,6 +56,82 @@ spec:
               message:
                 description: Message is the prompt to send to the copilot agent asynchronously.
                 type: string
+              sessionConfig:
+                description: SessionConfig holds optional per-session configuration
+                  overrides.
+                properties:
+                  customAgents:
+                    description: CustomAgents defines sub-agents available in this
+                      session.
+                    items:
+                      description: CustomAgent defines a sub-agent that the copilot
+                        can delegate to.
+                      properties:
+                        description:
+                          description: Description explains what this agent does.
+                          type: string
+                        displayName:
+                          description: DisplayName is the human-readable name shown
+                            in UI.
+                          type: string
+                        infer:
+                          description: Infer controls whether the agent infers tool
+                            use. Defaults to true.
+                          type: boolean
+                        name:
+                          description: Name is the unique identifier of the custom
+                            agent.
+                          type: string
+                        prompt:
+                          description: Prompt is the system prompt for this sub-agent.
+                          type: string
+                        tools:
+                          description: Tools is the list of tool names this agent
+                            can use.
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - name
+                      - prompt
+                      type: object
+                    type: array
+                  disabledSkills:
+                    description: DisabledSkills is a list of skill names to disable
+                      for this session.
+                    items:
+                      type: string
+                    type: array
+                  model:
+                    description: Model overrides the default model (e.g. "gpt-4o",
+                      "claude-sonnet-4").
+                    type: string
+                  provider:
+                    description: Provider specifies a BYOK model provider for this
+                      session.
+                    properties:
+                      baseURL:
+                        description: BaseURL is the base URL of the model provider's
+                          API.
+                        type: string
+                      secretRef:
+                        description: 'SecretRef references a Secret containing the
+                          API key (key: "api-key").'
+                        type: string
+                      type:
+                        description: Type is the provider type (e.g. "openai", "azure").
+                        type: string
+                    type: object
+                  systemMessage:
+                    description: SystemMessage overrides the default system prompt.
+                    type: string
+                  toolsConfig:
+                    additionalProperties:
+                      type: boolean
+                    description: ToolsConfig enables or disables specific tools by
+                      name.
+                    type: object
+                type: object
               sessionID:
                 description: SessionID optionally continues an existing conversation
                   session.

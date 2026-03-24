@@ -281,6 +281,82 @@
       line-height: 1.4;
     }
     .input-area button { margin: 0; flex-shrink: 0; height: 2.5rem; padding: 0 1.1rem; }
+
+    /* ── Settings panel ── */
+    .settings-btn {
+      background: none; border: 1px solid var(--pico-muted-border-color);
+      color: var(--pico-color); cursor: pointer;
+      font-size: 1.1rem; padding: 0.25rem 0.5rem; border-radius: 0.3rem;
+      line-height: 1;
+    }
+    .settings-btn:hover { background: var(--pico-secondary-background); }
+    .settings-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5); z-index: 100;
+    }
+    .settings-overlay.open { display: flex; align-items: center; justify-content: center; }
+    .settings-dialog {
+      background: var(--pico-background-color);
+      border: 1px solid var(--pico-muted-border-color);
+      border-radius: 0.75rem;
+      width: min(780px, 92vw); max-height: 85vh;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .settings-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--pico-muted-border-color);
+    }
+    .settings-header h2 { margin: 0; font-size: 1rem; }
+    .settings-close {
+      background: none; border: none; cursor: pointer;
+      font-size: 1.2rem; color: var(--pico-muted-color); padding: 0.2rem;
+    }
+    .settings-tabs {
+      display: flex; gap: 0;
+      border-bottom: 1px solid var(--pico-muted-border-color);
+      padding: 0 1rem; flex-shrink: 0;
+    }
+    .settings-tab {
+      background: none; border: none; border-bottom: 2px solid transparent;
+      cursor: pointer; padding: 0.5rem 0.9rem;
+      font-size: 0.8rem; color: var(--pico-muted-color);
+    }
+    .settings-tab:hover { color: var(--pico-color); }
+    .settings-tab.active {
+      color: var(--pico-primary); border-bottom-color: var(--pico-primary);
+    }
+    .settings-body {
+      flex: 1; overflow-y: auto; padding: 1rem;
+    }
+    .settings-section { display: none; }
+    .settings-section.active { display: block; }
+    .settings-section label { font-size: 0.8rem; display: block; margin-bottom: 0.25rem; color: var(--pico-muted-color); }
+    .settings-section select,
+    .settings-section input,
+    .settings-section textarea { font-size: 0.85rem; margin-bottom: 0.75rem; }
+    .settings-section textarea { min-height: 120px; resize: vertical; font-family: monospace; }
+    .settings-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+    .settings-actions button { font-size: 0.82rem; padding: 0.4rem 0.9rem; }
+    .settings-toast {
+      font-size: 0.75rem; color: #4caf50;
+      text-align: center; min-height: 1.2rem; margin-top: 0.25rem;
+    }
+    .skill-item, .agent-item {
+      border: 1px solid var(--pico-muted-border-color);
+      border-radius: 0.4rem; padding: 0.6rem;
+      margin-bottom: 0.5rem;
+    }
+    .skill-item-header, .agent-item-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 0.4rem;
+    }
+    .skill-item-header strong, .agent-item-header strong { font-size: 0.85rem; }
+    .item-delete-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--pico-muted-color); font-size: 0.85rem; padding: 0.1rem 0.3rem;
+    }
+    .item-delete-btn:hover { color: #f07178; }
   </style>
 </head>
 <body>
@@ -288,7 +364,82 @@
 <!-- Header -->
 <div class="app-header">
   <h1>🤖 KubeCopilot</h1>
-  <span class="session-badge" id="sessionBadge">No session</span>
+  <div style="display:flex;align-items:center;gap:0.6rem">
+    <span class="session-badge" id="sessionBadge">No session</span>
+    <button class="settings-btn" onclick="openSettings()" title="Settings">⚙️</button>
+  </div>
+</div>
+
+<!-- Settings dialog -->
+<div class="settings-overlay" id="settingsOverlay" onclick="if(event.target===this)closeSettings()">
+  <div class="settings-dialog">
+    <div class="settings-header">
+      <h2>⚙️ Agent Settings</h2>
+      <button class="settings-close" onclick="closeSettings()">✕</button>
+    </div>
+    <div class="settings-tabs">
+      <button class="settings-tab active" onclick="switchSettingsTab(this,'tab-model')">Model</button>
+      <button class="settings-tab" onclick="switchSettingsTab(this,'tab-instructions')">Instructions</button>
+      <button class="settings-tab" onclick="switchSettingsTab(this,'tab-skills')">Skills</button>
+      <button class="settings-tab" onclick="switchSettingsTab(this,'tab-agents')">Agents</button>
+      <button class="settings-tab" onclick="switchSettingsTab(this,'tab-byok')">BYOK</button>
+    </div>
+    <div class="settings-body">
+      <!-- Model tab -->
+      <div class="settings-section active" id="tab-model">
+        <label for="modelSelect">Model</label>
+        <select id="modelSelect"><option value="">Default</option></select>
+        <p style="font-size:0.72rem;color:var(--pico-muted-color)">Select a model for new messages. Leave as "Default" to use the agent's configured model.</p>
+        <div class="settings-toast" id="modelToast"></div>
+      </div>
+      <!-- Instructions tab -->
+      <div class="settings-section" id="tab-instructions">
+        <label for="instructionsEditor">copilot-instructions.md</label>
+        <textarea id="instructionsEditor" placeholder="Loading..."></textarea>
+        <div class="settings-actions">
+          <button onclick="saveInstructions()">Save</button>
+          <button class="secondary" onclick="loadInstructions()">Reload</button>
+        </div>
+        <div class="settings-toast" id="instructionsToast"></div>
+      </div>
+      <!-- Skills tab -->
+      <div class="settings-section" id="tab-skills">
+        <div id="skillsList"></div>
+        <div class="settings-actions">
+          <button onclick="addSkillDialog()">+ Add Skill</button>
+          <button class="secondary" onclick="loadSkills()">Reload</button>
+        </div>
+        <div class="settings-toast" id="skillsToast"></div>
+      </div>
+      <!-- Custom Agents tab -->
+      <div class="settings-section" id="tab-agents">
+        <div id="customAgentsList"></div>
+        <div class="settings-actions">
+          <button onclick="addCustomAgent()">+ Add Agent</button>
+          <button class="secondary" onclick="loadCustomAgents()">Reload</button>
+        </div>
+        <div class="settings-toast" id="agentsToast"></div>
+      </div>
+      <!-- BYOK tab -->
+      <div class="settings-section" id="tab-byok">
+        <label for="byokType">Provider Type</label>
+        <select id="byokType">
+          <option value="openai">OpenAI-compatible</option>
+          <option value="azure">Azure OpenAI</option>
+        </select>
+        <label for="byokBaseUrl">Base URL</label>
+        <input type="url" id="byokBaseUrl" placeholder="https://api.example.com/v1" />
+        <label for="byokApiKey">API Key</label>
+        <input type="password" id="byokApiKey" placeholder="sk-..." />
+        <div id="byokStatus" style="font-size:0.75rem;color:var(--pico-muted-color);margin-bottom:0.5rem"></div>
+        <div class="settings-actions">
+          <button onclick="saveProvider()">Save Provider</button>
+          <button class="secondary outline" onclick="deleteProvider()">Remove</button>
+        </div>
+        <div class="settings-toast" id="byokToast"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Main layout -->
@@ -682,6 +833,11 @@ async function sendMessage() {
     agent_ref: currentAgent,
     session_id: currentSession,
   });
+  // Include session config overrides
+  const model = document.getElementById('modelSelect')?.value;
+  if (model) params.set('model', model);
+  const providerRef = localStorage.getItem(`byok_secret_${currentAgent}`);
+  if (providerRef) params.set('provider_secret_ref', providerRef);
 
   const es = new EventSource(`/chat/stream?${params}`);
 
@@ -1006,6 +1162,274 @@ async function apiFetch(url, options = {}) {
   const res = await fetch(url, options);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
+}
+
+// =============================================================
+// Settings panel
+// =============================================================
+function openSettings() {
+  if (!currentAgent) { alert('Please select an agent first.'); return; }
+  document.getElementById('settingsOverlay').classList.add('open');
+  loadModels();
+  loadInstructions();
+  loadSkills();
+  loadCustomAgents();
+  loadProviderStatus();
+}
+
+function closeSettings() {
+  document.getElementById('settingsOverlay').classList.remove('open');
+}
+
+function switchSettingsTab(btn, tabId) {
+  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.settings-section').forEach(s => s.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(tabId).classList.add('active');
+}
+
+function showToast(id, msg, isError) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.style.color = isError ? '#f07178' : '#4caf50';
+  setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 3000);
+}
+
+// ── Models ──
+async function loadModels() {
+  try {
+    const data = await apiFetch(`/models?agent_ref=${enc(currentAgent)}`);
+    const sel = document.getElementById('modelSelect');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Default</option>';
+    (data.models || []).forEach(m => {
+      const name = typeof m === 'string' ? m : (m.name || m.id || JSON.stringify(m));
+      sel.innerHTML += `<option value="${esc(name)}">${esc(name)}</option>`;
+    });
+    // Restore previous selection from localStorage
+    const saved = localStorage.getItem(`model_${currentAgent}`);
+    if (saved) sel.value = saved;
+    sel.onchange = () => localStorage.setItem(`model_${currentAgent}`, sel.value);
+  } catch (e) {
+    showToast('modelToast', 'Failed to load models: ' + e.message, true);
+  }
+}
+
+// ── Instructions ──
+async function loadInstructions() {
+  try {
+    const data = await apiFetch(`/api/agents/${enc(currentAgent)}/instructions`);
+    document.getElementById('instructionsEditor').value = data.content || '';
+  } catch (e) {
+    showToast('instructionsToast', 'Failed to load: ' + e.message, true);
+  }
+}
+
+async function saveInstructions() {
+  const content = document.getElementById('instructionsEditor').value;
+  try {
+    await fetch(`/api/agents/${enc(currentAgent)}/instructions`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    showToast('instructionsToast', 'Saved!');
+  } catch (e) {
+    showToast('instructionsToast', 'Failed: ' + e.message, true);
+  }
+}
+
+// ── Skills ──
+let loadedSkills = [];
+
+async function loadSkills() {
+  try {
+    const data = await apiFetch(`/api/agents/${enc(currentAgent)}/skills`);
+    loadedSkills = data.skills || [];
+    renderSkillsList();
+  } catch (e) {
+    showToast('skillsToast', 'Failed to load skills: ' + e.message, true);
+  }
+}
+
+function renderSkillsList() {
+  const el = document.getElementById('skillsList');
+  if (!loadedSkills.length) {
+    el.innerHTML = '<p style="font-size:0.8rem;color:var(--pico-muted-color)">No skills configured.</p>';
+    return;
+  }
+  el.innerHTML = loadedSkills.map(s => `
+    <div class="skill-item">
+      <div class="skill-item-header">
+        <strong>${esc(s.name || s.dir_name)}</strong>
+        <button class="item-delete-btn" onclick="deleteSkill('${esc(s.dir_name)}')">🗑</button>
+      </div>
+      <div style="font-size:0.72rem;color:var(--pico-muted-color);margin-bottom:0.3rem">${esc(s.description || '')}</div>
+      <details>
+        <summary style="font-size:0.75rem;cursor:pointer">Edit content</summary>
+        <textarea id="skill-${esc(s.dir_name)}" style="min-height:80px;font-size:0.78rem;margin-top:0.3rem">${esc(s.content || '')}</textarea>
+        <button style="font-size:0.75rem;padding:0.25rem 0.6rem;margin-top:0.25rem" onclick="saveSkill('${esc(s.dir_name)}')">Save</button>
+      </details>
+    </div>
+  `).join('');
+}
+
+async function saveSkill(name) {
+  const content = document.getElementById(`skill-${name}`)?.value || '';
+  try {
+    await fetch(`/api/agents/${enc(currentAgent)}/skills/${enc(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    showToast('skillsToast', `Skill "${name}" saved!`);
+    loadSkills();
+  } catch (e) {
+    showToast('skillsToast', 'Failed: ' + e.message, true);
+  }
+}
+
+async function deleteSkill(name) {
+  if (!confirm(`Delete skill "${name}"?`)) return;
+  try {
+    await fetch(`/api/agents/${enc(currentAgent)}/skills/${enc(name)}`, { method: 'DELETE' });
+    showToast('skillsToast', `Skill "${name}" deleted`);
+    loadSkills();
+  } catch (e) {
+    showToast('skillsToast', 'Failed: ' + e.message, true);
+  }
+}
+
+function addSkillDialog() {
+  const name = prompt('Skill directory name (e.g. "kubernetes"):');
+  if (!name) return;
+  const content = `---\nname: "${name}"\ndescription: ""\n---\n\n# ${name}\n\n`;
+  loadedSkills.push({ name, dir_name: name, description: '', content });
+  renderSkillsList();
+  // Auto-save
+  saveSkill(name);
+}
+
+// ── Custom Agents ──
+let loadedAgentDefs = [];
+
+async function loadCustomAgents() {
+  try {
+    const data = await apiFetch(`/api/agents/${enc(currentAgent)}/custom-agents`);
+    loadedAgentDefs = data.agents || [];
+    renderCustomAgentsList();
+  } catch (e) {
+    showToast('agentsToast', 'Failed to load: ' + e.message, true);
+  }
+}
+
+function renderCustomAgentsList() {
+  const el = document.getElementById('customAgentsList');
+  if (!loadedAgentDefs.length) {
+    el.innerHTML = '<p style="font-size:0.8rem;color:var(--pico-muted-color)">No custom agents configured.</p>';
+    return;
+  }
+  el.innerHTML = loadedAgentDefs.map((a, i) => `
+    <div class="agent-item">
+      <div class="agent-item-header">
+        <strong>${esc(a.name)}</strong>
+        <button class="item-delete-btn" onclick="removeCustomAgent(${i})">🗑</button>
+      </div>
+      <div style="font-size:0.72rem;color:var(--pico-muted-color)">${esc(a.description || '')}</div>
+      <details>
+        <summary style="font-size:0.75rem;cursor:pointer">Edit</summary>
+        <label style="font-size:0.72rem">Name</label>
+        <input value="${esc(a.name)}" onchange="loadedAgentDefs[${i}].name=this.value" style="font-size:0.78rem" />
+        <label style="font-size:0.72rem">Description</label>
+        <input value="${esc(a.description || '')}" onchange="loadedAgentDefs[${i}].description=this.value" style="font-size:0.78rem" />
+        <label style="font-size:0.72rem">Prompt</label>
+        <textarea onchange="loadedAgentDefs[${i}].prompt=this.value" style="min-height:60px;font-size:0.78rem">${esc(a.prompt || '')}</textarea>
+      </details>
+    </div>
+  `).join('');
+}
+
+function addCustomAgent() {
+  const name = prompt('Agent name:');
+  if (!name) return;
+  loadedAgentDefs.push({ name, description: '', prompt: '', infer: true });
+  renderCustomAgentsList();
+  saveCustomAgents();
+}
+
+function removeCustomAgent(i) {
+  const a = loadedAgentDefs[i];
+  if (!confirm(`Remove agent "${a.name}"?`)) return;
+  loadedAgentDefs.splice(i, 1);
+  renderCustomAgentsList();
+  saveCustomAgents();
+}
+
+async function saveCustomAgents() {
+  try {
+    await fetch(`/api/agents/${enc(currentAgent)}/custom-agents`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agents: loadedAgentDefs }),
+    });
+    showToast('agentsToast', 'Saved!');
+  } catch (e) {
+    showToast('agentsToast', 'Failed: ' + e.message, true);
+  }
+}
+
+// ── BYOK Provider ──
+async function loadProviderStatus() {
+  try {
+    const data = await apiFetch(`/api/agents/${enc(currentAgent)}/provider`);
+    const status = document.getElementById('byokStatus');
+    if (data.configured) {
+      status.textContent = `✅ Provider configured: ${data.type} — ${data.base_url}`;
+      status.style.color = '#4caf50';
+      document.getElementById('byokType').value = data.type || 'openai';
+      document.getElementById('byokBaseUrl').value = data.base_url || '';
+      localStorage.setItem(`byok_secret_${currentAgent}`, data.secret_name);
+    } else {
+      status.textContent = 'No provider configured — using default Copilot models.';
+      status.style.color = 'var(--pico-muted-color)';
+      localStorage.removeItem(`byok_secret_${currentAgent}`);
+    }
+  } catch (e) {
+    document.getElementById('byokStatus').textContent = 'Could not load provider status.';
+  }
+}
+
+async function saveProvider() {
+  const type = document.getElementById('byokType').value;
+  const base_url = document.getElementById('byokBaseUrl').value.trim();
+  const api_key = document.getElementById('byokApiKey').value.trim();
+  if (!base_url) { showToast('byokToast', 'Base URL is required', true); return; }
+  if (!api_key) { showToast('byokToast', 'API Key is required', true); return; }
+  try {
+    const data = await (await fetch(`/api/agents/${enc(currentAgent)}/provider`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, base_url, api_key }),
+    })).json();
+    localStorage.setItem(`byok_secret_${currentAgent}`, data.secret_name);
+    document.getElementById('byokApiKey').value = '';
+    showToast('byokToast', 'Provider saved!');
+    loadProviderStatus();
+  } catch (e) {
+    showToast('byokToast', 'Failed: ' + e.message, true);
+  }
+}
+
+async function deleteProvider() {
+  if (!confirm('Remove the BYOK provider? Messages will use default Copilot models.')) return;
+  try {
+    await fetch(`/api/agents/${enc(currentAgent)}/provider`, { method: 'DELETE' });
+    localStorage.removeItem(`byok_secret_${currentAgent}`);
+    showToast('byokToast', 'Provider removed');
+    loadProviderStatus();
+  } catch (e) {
+    showToast('byokToast', 'Failed: ' + e.message, true);
+  }
 }
 
 // =============================================================

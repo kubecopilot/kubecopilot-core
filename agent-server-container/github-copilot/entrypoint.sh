@@ -35,5 +35,10 @@ if [ -d /copilot-skills-staging ]; then
   done
 fi
 
-# Run the HTTP shim
+# Copy agent instructions from ConfigMap staging if present
+if [ -f /copilot-agent-md-staging/agent.md ] && [ ! -f "${COPILOT_HOME}/copilot-instructions.md" ]; then
+  cp /copilot-agent-md-staging/agent.md "${COPILOT_HOME}/copilot-instructions.md"
+fi
+
+# Run the SDK-backed agent server
 exec /opt/venv/bin/python /server.py

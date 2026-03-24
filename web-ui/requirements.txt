@@ -3,3 +3,4 @@ uvicorn[standard]==0.34.0
 sse-starlette==2.2.1
 kubernetes==32.0.1
 pydantic-settings==2.8.1
+httpx==0.28.1

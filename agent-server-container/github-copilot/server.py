@@ -1,52 +1,112 @@
 #!/usr/bin/env python3
+"""
+KubeCopilot Agent Server — backed by the GitHub Copilot Python SDK.
+
+Replaces the previous subprocess-based approach with CopilotClient (JSON-RPC
+to the Copilot CLI in server mode), providing proper streaming events, session
+management, concurrent request handling, and programmatic configuration.
+"""
+
 import asyncio
 import json
 import os
-import re
-import signal
-import subprocess
+import shutil
 import uuid
 from pathlib import Path
+from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from copilot import CopilotClient, PermissionHandler, SubprocessConfig
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 app = FastAPI(title="KubeCopilot Agent")
 
+# ── Paths ────────────────────────────────────────────────────────────────────
 COPILOT_HOME = Path(os.environ.get("COPILOT_HOME", "/copilot"))
 SESSIONS_DIR = COPILOT_HOME / "sessions"
+SKILLS_DIR = COPILOT_HOME / "skills"
+CUSTOM_AGENTS_FILE = COPILOT_HOME / "custom-agents.json"
+INSTRUCTIONS_FILE = COPILOT_HOME / "copilot-instructions.md"
+
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
 
-# In-memory async queue for background processing
-_queue: asyncio.Queue = asyncio.Queue()
+# ── Singleton CopilotClient ──────────────────────────────────────────────────
+_client: CopilotClient | None = None
+_client_lock = asyncio.Lock()
 
-# Track active copilot subprocesses: queue_id → subprocess.Popen
-_active_procs: dict[str, subprocess.Popen] = {}
+# Track active SDK sessions for cancellation: queue_id → session
+_active_sessions: dict[str, Any] = {}
 
-ANSI_ESCAPE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+# Semaphore to limit concurrent SDK sessions (CLI in server mode can handle
+# multiple, but we bound it to avoid overwhelming the single CLI process).
+_concurrency = asyncio.Semaphore(int(os.environ.get("MAX_CONCURRENT_SESSIONS", "3")))
+
+
+async def _get_client() -> CopilotClient:
+    """Return (and lazily start) the singleton CopilotClient."""
+    global _client
+    async with _client_lock:
+        if _client is None:
+            _client = CopilotClient(SubprocessConfig(
+                cwd=str(COPILOT_HOME),
+                log_level="info",
+            ))
+            await _client.start()
+        return _client
+
+
+# ── Pydantic models ──────────────────────────────────────────────────────────
+
+class ProviderConfig(BaseModel):
+    type: str = "openai"
+    base_url: str
+    api_key: str | None = None
+    bearer_token: str | None = None
+
+
+class CustomAgentConfig(BaseModel):
+    name: str
+    display_name: str | None = None
+    description: str | None = None
+    prompt: str
+    tools: list[str] | None = None
+    infer: bool = True
+
+
+class SessionConfig(BaseModel):
+    model: str | None = None
+    system_message: str | None = None
+    disabled_skills: list[str] | None = None
+    custom_agents: list[CustomAgentConfig] | None = None
+    provider: ProviderConfig | None = None
+    tools_config: dict[str, bool] | None = None
 
 
 class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
+    session_config: SessionConfig | None = None
 
 
 class AsyncChatRequest(BaseModel):
     message: str
     session_id: str | None = None
-    # Optional metadata passed back in the webhook payload
     send_ref: str | None = None
     namespace: str | None = None
     agent_ref: str | None = None
+    session_config: SessionConfig | None = None
 
 
 class ChatResponse(BaseModel):
     response: str
     session_id: str
 
+
+# ── Session history helpers ──────────────────────────────────────────────────
 
 def load_session(session_id: str) -> list[dict]:
     path = SESSIONS_DIR / f"{session_id}.json"
@@ -60,130 +120,74 @@ def save_session(session_id: str, history: list[dict]) -> None:
     path.write_text(json.dumps(history, indent=2))
 
 
-def strip_ansi(text: str) -> str:
-    return ANSI_ESCAPE.sub('', text).strip()
+# ── Custom agents from PVC ───────────────────────────────────────────────────
 
-
-def parse_copilot_jsonl(raw: str) -> tuple[str, str | None]:
-    """
-    Parse JSONL output from copilot --output-format json.
-    Returns (response_text, session_id).
-    """
-    response_content = ""
-    session_id = None
-
-    for line in raw.strip().split('\n'):
-        line = line.strip()
-        if not line:
-            continue
+def _load_custom_agents_from_file() -> list[dict]:
+    """Load custom agent definitions from /copilot/custom-agents.json."""
+    if CUSTOM_AGENTS_FILE.exists():
         try:
-            obj = json.loads(line)
-            event_type = obj.get('type', '')
-            if event_type == 'assistant.message':
-                response_content = obj['data']['content']
-            elif event_type == 'result':
-                session_id = obj.get('sessionId')
-        except (json.JSONDecodeError, KeyError):
-            continue
-
-    return response_content or strip_ansi(raw), session_id
+            data = json.loads(CUSTOM_AGENTS_FILE.read_text())
+            if isinstance(data, list):
+                return data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
 
 
-def run_copilot(message: str, session_id: str | None = None) -> tuple[str, str | None]:
-    """
-    Invoke the copilot binary and return (response_text, session_id).
-    copilot-instructions.md and skills are loaded automatically from
-    COPILOT_HOME via --config-dir. Skills must be in subdirectories
-    under /copilot/skills/<skill-name>/SKILL.md (native agent skills format).
-    """
-    cmd = [
-        "copilot",
-        "--config-dir", str(COPILOT_HOME),
-        "--output-format", "json",
-        "--allow-all-tools",
-        "-p", message,
-    ]
-    if session_id:
-        cmd.append(f"--resume={session_id}")
+# ── SDK session builder ──────────────────────────────────────────────────────
 
-    env = os.environ.copy()
+async def _build_session_opts(cfg: SessionConfig | None) -> dict:
+    """Build the options dict for CopilotClient.create_session()."""
+    opts: dict[str, Any] = {
+        "on_permission_request": PermissionHandler.approve_all,
+        "streaming": True,
+    }
+
+    # Skills from PVC (always loaded)
+    if SKILLS_DIR.exists() and any(SKILLS_DIR.iterdir()):
+        opts["skill_directories"] = [str(SKILLS_DIR)]
+
+    # Custom agents from PVC file + optional per-request overrides
+    pvc_agents = _load_custom_agents_from_file()
+    if pvc_agents:
+        opts["custom_agents"] = pvc_agents
+
+    if cfg is None:
+        return opts
+
+    if cfg.model:
+        opts["model"] = cfg.model
+
+    if cfg.system_message:
+        opts["system_message"] = {"content": cfg.system_message}
+
+    if cfg.disabled_skills:
+        opts["disabled_skills"] = cfg.disabled_skills
+
+    if cfg.custom_agents:
+        # Per-request agents override PVC agents
+        opts["custom_agents"] = [a.model_dump(exclude_none=True) for a in cfg.custom_agents]
+
+    if cfg.provider:
+        opts["provider"] = cfg.provider.model_dump(exclude_none=True)
+
+    return opts
+
+
+# ── Webhook helpers ──────────────────────────────────────────────────────────
+
+SKIP_TOOLS = {"report_intent", "skill"}
+
+
+async def _post_chunk(
+    chunk_url: str, send_ref: str, session_id: str | None,
+    agent_ref: str | None, namespace: str | None,
+    sequence: int, chunk_type: str, content: str,
+):
+    """POST a streaming chunk to the operator webhook (fire-and-forget)."""
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120,
-            env={**env, "GH_NO_UPDATE_NOTIFIER": "1", "NO_COLOR": "1"},
-        )
-        stdout = result.stdout.strip()
-        stderr = strip_ansi(result.stderr).strip()
-
-        if result.returncode != 0:
-            detail = strip_ansi(stdout) or stderr or "copilot returned a non-zero exit code"
-            raise HTTPException(
-                status_code=502,
-                detail=f"copilot error (exit {result.returncode}): {detail}",
-            )
-
-        return parse_copilot_jsonl(stdout or "No response from copilot")
-    except HTTPException:
-        raise
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Copilot CLI timed out")
-    except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="copilot binary not found in PATH")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-async def _process_queue():
-    """Background worker: processes async chat requests one by one."""
-    while True:
-        item = await _queue.get()
-        queue_id = item["queue_id"]
-        message = item["message"]
-        session_id = item.get("session_id")
-        send_ref = item.get("send_ref")
-        namespace = item.get("namespace")
-        agent_ref = item.get("agent_ref")
-        try:
-            response_text, resolved_session_id = await run_copilot_streaming(
-                message, session_id, send_ref, namespace, agent_ref, queue_id
-            )
-
-            history = load_session(resolved_session_id)
-            history.append({"user": message, "assistant": response_text})
-            save_session(resolved_session_id, history)
-
-            if WEBHOOK_URL:
-                payload = {
-                    "queue_id": queue_id,
-                    "session_id": resolved_session_id,
-                    "prompt": message,
-                    "response": response_text,
-                    "send_ref": send_ref,
-                    "namespace": namespace,
-                    "agent_ref": agent_ref,
-                }
-                try:
-                    async with httpx.AsyncClient(timeout=10.0) as client:
-                        await client.post(WEBHOOK_URL, json=payload)
-                except Exception as e:
-                    print(f"[asyncchat] webhook POST failed for queue_id={queue_id}: {e}")
-        except Exception as e:
-            print(f"[asyncchat] processing failed for queue_id={queue_id}: {e}")
-        finally:
-            _active_procs.pop(queue_id, None)
-            _queue.task_done()
-
-
-async def _post_chunk(chunk_url: str, send_ref: str, session_id: str | None,
-                      agent_ref: str | None, namespace: str | None,
-                      sequence: int, chunk_type: str, content: str):
-    """Fire-and-forget POST of a streaming chunk to the operator webhook."""
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(chunk_url, json={
+        async with httpx.AsyncClient(timeout=5.0) as http:
+            await http.post(chunk_url, json={
                 "send_ref": send_ref or "",
                 "session_id": session_id or "",
                 "agent_ref": agent_ref or "",
@@ -196,218 +200,298 @@ async def _post_chunk(chunk_url: str, send_ref: str, session_id: str | None,
         print(f"[chunk] POST failed seq={sequence}: {e}")
 
 
-SKIP_TOOLS = {"report_intent", "skill"}
+# ── Core SDK-based execution ─────────────────────────────────────────────────
 
-
-def _event_to_chunk(event: dict, tool_names: dict[str, str]) -> tuple[str, str] | None:
-    """
-    Convert a copilot events.jsonl entry to a (chunk_type, content) pair.
-    tool_names maps toolCallId → toolName (populated from execution_start events).
-    Returns None if the event should be skipped.
-    """
-    t = event.get("type", "")
-    d = event.get("data", {})
-
-    if t == "assistant.message":
-        reasoning = d.get("reasoningText", "").strip()
-        content = d.get("content", "").strip()
-        tool_requests = d.get("toolRequests", [])
-
-        if reasoning:
-            return ("thinking", f"🤔 {reasoning[:300]}")
-        if tool_requests:
-            names = ", ".join(tr.get("name", "?") for tr in tool_requests
-                             if tr.get("name") not in SKIP_TOOLS)
-            if not names:
-                return None
-            return ("tool_call", f"Invoking: **{names}**")
-        if content:
-            preview = content[:200] + ("…" if len(content) > 200 else "")
-            return ("response", f"💬 {preview}")
-
-    elif t == "tool.execution_start":
-        tool_name = d.get("toolName", "?")
-        # Record callId→name for use in completion event
-        call_id = d.get("toolCallId", "")
-        if call_id:
-            tool_names[call_id] = tool_name
-        if tool_name in SKIP_TOOLS:
-            return None
-        args = d.get("arguments", {})
-        desc = args.get("description") or args.get("command") or str(args)[:120]
-        return ("tool_call", f"🔧 **{tool_name}**: {desc[:200]}")
-
-    elif t == "tool.execution_complete":
-        call_id = d.get("toolCallId", "")
-        tool_name = tool_names.get(call_id, "")
-        if tool_name in SKIP_TOOLS:
-            return None
-        result = d.get("result", {})
-        output = result.get("content", "") or result.get("detailedContent", "")
-        if not output or not output.strip():
-            return None
-        success = "✅" if d.get("success", True) else "❌"
-        label = f" **{tool_name}**" if tool_name else ""
-        return ("tool_result", f"{success}{label} result:\n```\n{output[:400]}\n```")
-
-    elif t == "skill.invoked":
-        name = d.get("name", "?")
-        return ("info", f"📚 Skill loaded: **{name}**")
-
-    return None
-
-
-async def run_copilot_streaming(
-    message: str, session_id: str | None,
-    send_ref: str | None, namespace: str | None, agent_ref: str | None,
-    queue_id: str | None = None,
+async def _run_sdk_streaming(
+    message: str,
+    session_id: str | None,
+    send_ref: str | None,
+    namespace: str | None,
+    agent_ref: str | None,
+    queue_id: str | None,
+    session_config: SessionConfig | None = None,
 ) -> tuple[str, str]:
     """
-    Run copilot via Popen, tail the session events.jsonl in real-time,
-    POST each meaningful event as a KubeCopilotChunk, return (response_text, session_id).
+    Run a copilot interaction via the SDK, streaming chunks to the webhook.
+    Returns (response_text, session_id).
     """
+    client = await _get_client()
     chunk_url = WEBHOOK_URL.replace("/response", "/chunk") if WEBHOOK_URL else ""
-    session_state_dir = COPILOT_HOME / "session-state"
-    session_state_dir.mkdir(parents=True, exist_ok=True)
-
-    cmd = [
-        "copilot",
-        "--config-dir", str(COPILOT_HOME),
-        "--output-format", "json",
-        "--allow-all-tools",
-        "-p", message,
-    ]
-    if session_id:
-        cmd.append(f"--resume={session_id}")
-
-    env = {**os.environ.copy(), "GH_NO_UPDATE_NOTIFIER": "1", "NO_COLOR": "1"}
-
-    # Snapshot existing sessions before launch to detect the new one
-    existing_sessions = {d.name for d in session_state_dir.iterdir() if d.is_dir()}
-
-    loop = asyncio.get_event_loop()
-    proc = await loop.run_in_executor(None, lambda: subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
-        start_new_session=True,  # new process group so we can kill all children
-    ))
-
-    # Register proc so /cancel can kill the entire process group
-    if queue_id:
-        _active_procs[queue_id] = proc
-
     sequence = 0
-    if chunk_url and send_ref:
-        await _post_chunk(chunk_url, send_ref, session_id, agent_ref, namespace,
-                          sequence, "info", f"Processing: {message[:120]}")
-        sequence += 1
-
-    # Locate events.jsonl — for resumed sessions it's at a known path;
-    # for new sessions we poll for the new directory.
-    events_file: Path | None = None
-    file_pos = 0
-
-    if session_id:
-        events_file = session_state_dir / session_id / "events.jsonl"
-        # Seek to the end so we only stream *new* events from this interaction
-        if events_file.exists():
-            file_pos = events_file.stat().st_size
-    else:
-        # Wait up to 15s for a new session directory to appear
-        for _ in range(30):
-            await asyncio.sleep(0.5)
-            current = {d.name for d in session_state_dir.iterdir() if d.is_dir()}
-            new = current - existing_sessions
-            if new:
-                new_sid = new.pop()
-                resolved_session_id = new_sid  # know the session_id as soon as dir appears
-                events_file = session_state_dir / new_sid / "events.jsonl"
-                break
-
-    # Tail events.jsonl while copilot is running
     response_text = ""
     resolved_session_id = session_id or ""
-    tool_names: dict[str, str] = {}  # toolCallId → toolName
 
-    async def tail_once():
-        nonlocal file_pos, response_text, resolved_session_id, sequence
-        if not events_file or not events_file.exists():
-            return
-        with open(events_file) as f:
-            f.seek(file_pos)
-            new_content = f.read()
-            file_pos = f.tell()
-        for line in new_content.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            # Extract session ID from session.start
-            if event.get("type") == "session.start":
-                resolved_session_id = event.get("data", {}).get("sessionId", resolved_session_id)
-            # Extract final response text from assistant.message
-            if event.get("type") == "assistant.message":
-                content = event.get("data", {}).get("content", "")
-                if content and not event.get("data", {}).get("toolRequests"):
-                    response_text = content
-            # Convert to chunk and post
-            result = _event_to_chunk(event, tool_names)
-            if result and chunk_url and send_ref:
-                ctype, ccontent = result
-                await _post_chunk(chunk_url, send_ref, resolved_session_id or session_id,
-                                  agent_ref, namespace, sequence, ctype, ccontent)
+    if chunk_url and send_ref:
+        await _post_chunk(
+            chunk_url, send_ref, session_id, agent_ref, namespace,
+            sequence, "info", f"Processing: {message[:120]}",
+        )
+        sequence += 1
+
+    opts = await _build_session_opts(session_config)
+
+    # Create or resume session
+    if session_id:
+        session = await client.resume_session(session_id, opts)
+    else:
+        session = await client.create_session(opts)
+
+    # Register for cancellation
+    if queue_id:
+        _active_sessions[queue_id] = session
+
+    # Collect response via events
+    done = asyncio.Event()
+    cancelled = False
+
+    def on_event(event):
+        nonlocal sequence, response_text, resolved_session_id, cancelled
+
+        etype = event.type.value if hasattr(event.type, "value") else str(event.type)
+        data = event.data if hasattr(event, "data") else None
+
+        # Session ID extraction
+        if etype == "session.created" and data and hasattr(data, "session_id"):
+            resolved_session_id = data.session_id or resolved_session_id
+
+        # Streaming text deltas
+        elif etype == "assistant.message_delta":
+            delta = getattr(data, "delta_content", "") or ""
+            if delta:
+                response_text += delta
+
+        # Reasoning deltas
+        elif etype == "assistant.reasoning_delta":
+            delta = getattr(data, "delta_content", "") or ""
+            if delta and chunk_url and send_ref:
+                asyncio.get_event_loop().create_task(_post_chunk(
+                    chunk_url, send_ref, resolved_session_id or session_id,
+                    agent_ref, namespace, sequence, "thinking",
+                    f"🤔 {delta[:300]}",
+                ))
                 sequence += 1
 
-    # Poll while process is running
-    while proc.poll() is None:
-        await tail_once()
-        await asyncio.sleep(0.5)
+        # Final message
+        elif etype == "assistant.message":
+            content = getattr(data, "content", "") or ""
+            tool_requests = getattr(data, "tool_requests", None)
+            if content and not tool_requests:
+                response_text = content
+                if chunk_url and send_ref:
+                    preview = content[:200] + ("…" if len(content) > 200 else "")
+                    asyncio.get_event_loop().create_task(_post_chunk(
+                        chunk_url, send_ref, resolved_session_id or session_id,
+                        agent_ref, namespace, sequence, "response",
+                        f"💬 {preview}",
+                    ))
+                    sequence += 1
+            elif tool_requests:
+                names = ", ".join(
+                    getattr(tr, "name", "?") for tr in tool_requests
+                    if getattr(tr, "name", "") not in SKIP_TOOLS
+                )
+                if names and chunk_url and send_ref:
+                    asyncio.get_event_loop().create_task(_post_chunk(
+                        chunk_url, send_ref, resolved_session_id or session_id,
+                        agent_ref, namespace, sequence, "tool_call",
+                        f"Invoking: **{names}**",
+                    ))
+                    sequence += 1
 
-    # One final tail pass to catch events written just before process exit
-    await tail_once()
+        # Tool execution
+        elif etype == "tool.execution_start":
+            tool_name = getattr(data, "tool_name", "") or ""
+            if tool_name not in SKIP_TOOLS and chunk_url and send_ref:
+                args = getattr(data, "arguments", {}) or {}
+                desc = args.get("description") or args.get("command") or str(args)[:120]
+                asyncio.get_event_loop().create_task(_post_chunk(
+                    chunk_url, send_ref, resolved_session_id or session_id,
+                    agent_ref, namespace, sequence, "tool_call",
+                    f"🔧 **{tool_name}**: {desc[:200]}",
+                ))
+                sequence += 1
 
-    # Close pipes immediately — do NOT read them. Copilot may have spawned children
-    # (e.g. bash/sleep) that still hold the pipe write-end open; reading would block.
-    returncode = proc.returncode
-    if proc.stdout:
-        proc.stdout.close()
-    if proc.stderr:
-        proc.stderr.close()
+        elif etype == "tool.execution_complete":
+            tool_name = getattr(data, "tool_name", "") or ""
+            if tool_name not in SKIP_TOOLS and chunk_url and send_ref:
+                result = getattr(data, "result", None)
+                output = ""
+                if result:
+                    output = getattr(result, "content", "") or getattr(result, "detailed_content", "") or ""
+                if output and output.strip():
+                    success = "✅" if getattr(data, "success", True) else "❌"
+                    asyncio.get_event_loop().create_task(_post_chunk(
+                        chunk_url, send_ref, resolved_session_id or session_id,
+                        agent_ref, namespace, sequence, "tool_result",
+                        f"{success} **{tool_name}** result:\n```\n{output[:400]}\n```",
+                    ))
+                    sequence += 1
 
-    # returncode -15 = SIGTERM (cancelled), -9 = SIGKILL
-    if returncode in (-15, -9):
+        # Skill invocation
+        elif etype == "skill.invoked":
+            name = getattr(data, "name", "?")
+            if chunk_url and send_ref:
+                asyncio.get_event_loop().create_task(_post_chunk(
+                    chunk_url, send_ref, resolved_session_id or session_id,
+                    agent_ref, namespace, sequence, "info",
+                    f"📚 Skill loaded: **{name}**",
+                ))
+                sequence += 1
+
+        # Sub-agent events
+        elif etype in ("subagent.started", "subagent.completed", "subagent.failed"):
+            agent_name = getattr(data, "agent_display_name", "") or getattr(data, "agent_name", "?")
+            if chunk_url and send_ref:
+                if etype == "subagent.started":
+                    msg = f"🤖 Sub-agent started: **{agent_name}**"
+                elif etype == "subagent.completed":
+                    msg = f"✅ Sub-agent completed: **{agent_name}**"
+                else:
+                    err = getattr(data, "error", "unknown error")
+                    msg = f"❌ Sub-agent failed: **{agent_name}** — {err}"
+                asyncio.get_event_loop().create_task(_post_chunk(
+                    chunk_url, send_ref, resolved_session_id or session_id,
+                    agent_ref, namespace, sequence, "info", msg,
+                ))
+                sequence += 1
+
+        # Session idle = done
+        elif etype == "session.idle":
+            done.set()
+
+        # Session disconnected (cancelled)
+        elif etype == "session.deleted":
+            cancelled = True
+            done.set()
+
+    session.on(on_event)
+
+    # Send the message
+    await session.send(message)
+
+    # Wait for completion (generous timeout for complex tool-use chains)
+    try:
+        await asyncio.wait_for(done.wait(), timeout=300)
+    except asyncio.TimeoutError:
+        if chunk_url and send_ref:
+            await _post_chunk(
+                chunk_url, send_ref, resolved_session_id or session_id,
+                agent_ref, namespace, sequence, "error",
+                "⏱️ Request timed out after 300s",
+            )
+        await session.disconnect()
+        raise HTTPException(status_code=504, detail="SDK session timed out")
+    finally:
+        if queue_id:
+            _active_sessions.pop(queue_id, None)
+
+    if cancelled:
         cancelled_msg = "⛔ Request cancelled by user."
         if chunk_url and send_ref:
-            await _post_chunk(chunk_url, send_ref, resolved_session_id or session_id,
-                              agent_ref, namespace, sequence, "error", cancelled_msg)
-        # Return cancelled message — _process_queue will POST it to the webhook
-        return cancelled_msg, resolved_session_id or session_id or "unknown"
+            await _post_chunk(
+                chunk_url, send_ref, resolved_session_id or session_id,
+                agent_ref, namespace, sequence, "error", cancelled_msg,
+            )
+        return cancelled_msg, resolved_session_id or "unknown"
 
-    if returncode != 0:
-        if chunk_url and send_ref:
-            await _post_chunk(chunk_url, send_ref, resolved_session_id or session_id,
-                              agent_ref, namespace, sequence, "error",
-                              f"copilot exited with code {returncode}")
-        raise HTTPException(status_code=502, detail=f"copilot exited with code {returncode}")
+    # Disconnect session (cleanup) — don't delete CLI state
+    await session.disconnect()
 
-    # Fallback: if we didn't get a response from events.jsonl, use a placeholder
     if not response_text:
         response_text = "No response captured"
 
-    return response_text or "No response from copilot", resolved_session_id or "unknown"
+    return response_text, resolved_session_id or "unknown"
 
+
+# ── Async queue processing ───────────────────────────────────────────────────
+
+_queue: asyncio.Queue = asyncio.Queue()
+
+
+async def _process_queue():
+    """Background worker: process async chat requests with bounded concurrency."""
+    while True:
+        item = await _queue.get()
+        asyncio.create_task(_handle_async_item(item))
+
+
+async def _handle_async_item(item: dict):
+    """Process a single async chat item under the concurrency semaphore."""
+    queue_id = item["queue_id"]
+    async with _concurrency:
+        try:
+            response_text, resolved_session_id = await _run_sdk_streaming(
+                message=item["message"],
+                session_id=item.get("session_id"),
+                send_ref=item.get("send_ref"),
+                namespace=item.get("namespace"),
+                agent_ref=item.get("agent_ref"),
+                queue_id=queue_id,
+                session_config=item.get("session_config"),
+            )
+
+            history = load_session(resolved_session_id)
+            history.append({"user": item["message"], "assistant": response_text})
+            save_session(resolved_session_id, history)
+
+            if WEBHOOK_URL:
+                payload = {
+                    "queue_id": queue_id,
+                    "session_id": resolved_session_id,
+                    "prompt": item["message"],
+                    "response": response_text,
+                    "send_ref": item.get("send_ref"),
+                    "namespace": item.get("namespace"),
+                    "agent_ref": item.get("agent_ref"),
+                }
+                try:
+                    async with httpx.AsyncClient(timeout=10.0) as http:
+                        await http.post(WEBHOOK_URL, json=payload)
+                except Exception as e:
+                    print(f"[asyncchat] webhook POST failed for queue_id={queue_id}: {e}")
+        except Exception as e:
+            print(f"[asyncchat] processing failed for queue_id={queue_id}: {e}")
+        finally:
+            _active_sessions.pop(queue_id, None)
+            _queue.task_done()
+
+
+# ── FastAPI lifecycle ────────────────────────────────────────────────────────
 
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(_process_queue())
 
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    global _client
+    if _client:
+        await _client.stop()
+        _client = None
+
+
+# ── Health ───────────────────────────────────────────────────────────────────
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
+
+# ── Models endpoint ──────────────────────────────────────────────────────────
+
+@app.get("/models")
+async def list_models():
+    """Return available models from the Copilot CLI."""
+    try:
+        client = await _get_client()
+        models = await client.list_models()
+        return {"models": models}
+    except Exception as e:
+        return {"models": [], "error": str(e)}
+
+
+# ── Async chat ───────────────────────────────────────────────────────────────
 
 @app.post("/asyncchat")
 async def async_chat(req: AsyncChatRequest):
@@ -420,62 +504,199 @@ async def async_chat(req: AsyncChatRequest):
         "send_ref": req.send_ref,
         "namespace": req.namespace,
         "agent_ref": req.agent_ref,
+        "session_config": req.session_config,
     })
     return {"queue_id": queue_id, "status": "queued"}
 
 
+# ── Cancel ───────────────────────────────────────────────────────────────────
+
 @app.delete("/cancel/{queue_id}")
 async def cancel_queue_item(queue_id: str):
-    """Kill the entire copilot process group for the given queue_id."""
-    proc = _active_procs.get(queue_id)
-    if proc is None:
+    """Disconnect the SDK session for the given queue_id."""
+    session = _active_sessions.get(queue_id)
+    if session is None:
         return {"status": "not_found", "queue_id": queue_id}
-    if proc.poll() is not None:
-        _active_procs.pop(queue_id, None)
-        return {"status": "already_done", "queue_id": queue_id}
     try:
-        pgid = os.getpgid(proc.pid)
-        os.killpg(pgid, signal.SIGTERM)
-        print(f"[cancel] sent SIGTERM to process group {pgid} for queue_id={queue_id}")
-        # Give processes 3s to exit, then SIGKILL the group
-        loop = asyncio.get_event_loop()
-        try:
-            await asyncio.wait_for(
-                loop.run_in_executor(None, proc.wait), timeout=3.0
-            )
-        except asyncio.TimeoutError:
-            os.killpg(pgid, signal.SIGKILL)
-            print(f"[cancel] sent SIGKILL to process group {pgid}")
-    except (ProcessLookupError, PermissionError):
-        pass  # process already gone
-    _active_procs.pop(queue_id, None)
+        await session.disconnect()
+        print(f"[cancel] disconnected session for queue_id={queue_id}")
+    except Exception as e:
+        print(f"[cancel] disconnect failed for queue_id={queue_id}: {e}")
+    _active_sessions.pop(queue_id, None)
     return {"status": "cancelled", "queue_id": queue_id}
 
 
+# ── Sync chat ────────────────────────────────────────────────────────────────
+
 @app.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest):
-    # If the client passes a session_id, this is a follow-up turn.
-    existing_session_id = req.session_id
+async def chat(req: ChatRequest):
+    """Synchronous chat — blocks until the agent responds."""
+    client = await _get_client()
+    opts = await _build_session_opts(req.session_config)
 
-    response_text, copilot_session_id = run_copilot(req.message, existing_session_id)
+    if req.session_id:
+        session = await client.resume_session(req.session_id, opts)
+    else:
+        session = await client.create_session(opts)
 
-    # Use copilot's own session ID as the canonical ID.
-    # Fall back to the client-supplied one, then a note that parsing failed.
-    session_id = copilot_session_id or existing_session_id or "unknown"
+    response_text = ""
+    resolved_session_id = req.session_id or ""
+    done = asyncio.Event()
 
-    # If the client gave a different ID than what copilot returned (shouldn't
-    # happen, but guard anyway), migrate the history file.
-    if existing_session_id and copilot_session_id and existing_session_id != copilot_session_id:
-        old_path = SESSIONS_DIR / f"{existing_session_id}.json"
-        new_path = SESSIONS_DIR / f"{copilot_session_id}.json"
+    def on_event(event):
+        nonlocal response_text, resolved_session_id
+        etype = event.type.value if hasattr(event.type, "value") else str(event.type)
+        data = event.data if hasattr(event, "data") else None
+
+        if etype == "session.created" and data and hasattr(data, "session_id"):
+            resolved_session_id = data.session_id or resolved_session_id
+        elif etype == "assistant.message":
+            content = getattr(data, "content", "") or ""
+            tool_requests = getattr(data, "tool_requests", None)
+            if content and not tool_requests:
+                response_text = content
+        elif etype == "session.idle":
+            done.set()
+
+    session.on(on_event)
+    await session.send(req.message)
+
+    try:
+        await asyncio.wait_for(done.wait(), timeout=120)
+    except asyncio.TimeoutError:
+        await session.disconnect()
+        raise HTTPException(status_code=504, detail="Copilot SDK timed out")
+
+    await session.disconnect()
+
+    session_id = resolved_session_id or "unknown"
+
+    # Migrate history if session IDs don't match
+    if req.session_id and resolved_session_id and req.session_id != resolved_session_id:
+        old_path = SESSIONS_DIR / f"{req.session_id}.json"
+        new_path = SESSIONS_DIR / f"{resolved_session_id}.json"
         if old_path.exists() and not new_path.exists():
             old_path.rename(new_path)
 
     history = load_session(session_id)
-    history.append({"user": req.message, "assistant": response_text})
+    history.append({"user": req.message, "assistant": response_text or "No response"})
     save_session(session_id, history)
 
-    return ChatResponse(response=response_text, session_id=session_id)
+    return ChatResponse(response=response_text or "No response", session_id=session_id)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# File management endpoints for skills, instructions, custom agents
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _parse_skill_frontmatter(content: str) -> tuple[str, str]:
+    """Extract name and description from YAML frontmatter in a SKILL.md."""
+    name, description = "", ""
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            for line in parts[1].strip().splitlines():
+                line = line.strip()
+                if line.startswith("name:"):
+                    name = line[len("name:"):].strip().strip('"').strip("'")
+                elif line.startswith("description:"):
+                    description = line[len("description:"):].strip().strip('"').strip("'")
+    return name, description
+
+
+# ── Instructions ─────────────────────────────────────────────────────────────
+
+@app.get("/config/instructions")
+def get_instructions():
+    if INSTRUCTIONS_FILE.exists():
+        return {"content": INSTRUCTIONS_FILE.read_text()}
+    return {"content": ""}
+
+
+@app.put("/config/instructions")
+async def put_instructions(request: Request):
+    body = await request.json()
+    content = body.get("content", "")
+    INSTRUCTIONS_FILE.write_text(content)
+    return {"status": "saved"}
+
+
+# ── Skills ───────────────────────────────────────────────────────────────────
+
+@app.get("/config/skills")
+def list_skills():
+    skills = []
+    if SKILLS_DIR.exists():
+        for skill_dir in sorted(SKILLS_DIR.iterdir()):
+            skill_file = skill_dir / "SKILL.md"
+            if skill_dir.is_dir() and skill_file.exists():
+                content = skill_file.read_text()
+                name, description = _parse_skill_frontmatter(content)
+                skills.append({
+                    "name": name or skill_dir.name,
+                    "dir_name": skill_dir.name,
+                    "description": description,
+                    "content": content,
+                })
+    return {"skills": skills}
+
+
+@app.get("/config/skills/{skill_name}")
+def get_skill(skill_name: str):
+    if "/" in skill_name or "\\" in skill_name or ".." in skill_name:
+        raise HTTPException(status_code=400, detail="Invalid skill name")
+    skill_file = SKILLS_DIR / skill_name / "SKILL.md"
+    if not skill_file.exists():
+        raise HTTPException(status_code=404, detail="Skill not found")
+    content = skill_file.read_text()
+    name, description = _parse_skill_frontmatter(content)
+    return {
+        "name": name or skill_name,
+        "dir_name": skill_name,
+        "description": description,
+        "content": content,
+    }
+
+
+@app.put("/config/skills/{skill_name}")
+async def put_skill(skill_name: str, request: Request):
+    if "/" in skill_name or "\\" in skill_name or ".." in skill_name:
+        raise HTTPException(status_code=400, detail="Invalid skill name")
+    body = await request.json()
+    content = body.get("content", "")
+    skill_dir = SKILLS_DIR / skill_name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(content)
+    return {"status": "saved", "name": skill_name}
+
+
+@app.delete("/config/skills/{skill_name}")
+def delete_skill(skill_name: str):
+    if "/" in skill_name or "\\" in skill_name or ".." in skill_name:
+        raise HTTPException(status_code=400, detail="Invalid skill name")
+    skill_dir = SKILLS_DIR / skill_name
+    if not skill_dir.exists():
+        raise HTTPException(status_code=404, detail="Skill not found")
+    shutil.rmtree(skill_dir)
+    return {"status": "deleted", "name": skill_name}
+
+
+# ── Custom agents ────────────────────────────────────────────────────────────
+
+@app.get("/config/agents")
+def get_custom_agents():
+    agents = _load_custom_agents_from_file()
+    return {"agents": agents}
+
+
+@app.put("/config/agents")
+async def put_custom_agents(request: Request):
+    body = await request.json()
+    agents = body.get("agents", [])
+    if not isinstance(agents, list):
+        raise HTTPException(status_code=400, detail="agents must be a list")
+    CUSTOM_AGENTS_FILE.write_text(json.dumps(agents, indent=2))
+    return {"status": "saved"}
 
 
 if __name__ == "__main__":

@@ -7,3 +7,10 @@ spec:
   agentRef: gh-copilot-agent
   message: "What is the overall health of the cluster? Summarize in a few bullet points."
   sessionID: ""  # leave empty to start a new session
+  # sessionConfig:          # optional per-session overrides
+  #   model: "gpt-4o"
+  #   systemMessage: "You are a Kubernetes expert."
+  #   provider:
+  #     type: "openai"
+  #     baseURL: "https://api.example.com/v1"
+  #     secretRef: "my-provider-secret"  # Secret with key "api-key"

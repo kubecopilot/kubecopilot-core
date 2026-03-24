@@ -20,6 +20,75 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ProviderConfig specifies a BYOK (Bring Your Own Key) model provider.
+type ProviderConfig struct {
+	// Type is the provider type (e.g. "openai", "azure").
+	// +optional
+	Type string `json:"type,omitempty"`
+
+	// BaseURL is the base URL of the model provider's API.
+	// +optional
+	BaseURL string `json:"baseURL,omitempty"`
+
+	// SecretRef references a Secret containing the API key (key: "api-key").
+	// +optional
+	SecretRef string `json:"secretRef,omitempty"`
+}
+
+// CustomAgent defines a sub-agent that the copilot can delegate to.
+type CustomAgent struct {
+	// Name is the unique identifier of the custom agent.
+	// +required
+	Name string `json:"name"`
+
+	// DisplayName is the human-readable name shown in UI.
+	// +optional
+	DisplayName string `json:"displayName,omitempty"`
+
+	// Description explains what this agent does.
+	// +optional
+	Description string `json:"description,omitempty"`
+
+	// Prompt is the system prompt for this sub-agent.
+	// +required
+	Prompt string `json:"prompt"`
+
+	// Tools is the list of tool names this agent can use.
+	// +optional
+	Tools []string `json:"tools,omitempty"`
+
+	// Infer controls whether the agent infers tool use. Defaults to true.
+	// +optional
+	Infer *bool `json:"infer,omitempty"`
+}
+
+// SessionConfig holds per-session configuration that overrides agent defaults.
+type SessionConfig struct {
+	// Model overrides the default model (e.g. "gpt-4o", "claude-sonnet-4").
+	// +optional
+	Model string `json:"model,omitempty"`
+
+	// SystemMessage overrides the default system prompt.
+	// +optional
+	SystemMessage string `json:"systemMessage,omitempty"`
+
+	// DisabledSkills is a list of skill names to disable for this session.
+	// +optional
+	DisabledSkills []string `json:"disabledSkills,omitempty"`
+
+	// CustomAgents defines sub-agents available in this session.
+	// +optional
+	CustomAgents []CustomAgent `json:"customAgents,omitempty"`
+
+	// Provider specifies a BYOK model provider for this session.
+	// +optional
+	Provider *ProviderConfig `json:"provider,omitempty"`
+
+	// ToolsConfig enables or disables specific tools by name.
+	// +optional
+	ToolsConfig map[string]bool `json:"toolsConfig,omitempty"`
+}
+
 // KubeCopilotSendSpec defines the desired state of KubeCopilotSend
 type KubeCopilotSendSpec struct {
 	// AgentRef is the name of the KubeCopilotAgent in the same namespace.
@@ -33,6 +102,10 @@ type KubeCopilotSendSpec struct {
 	// SessionID optionally continues an existing conversation session.
 	// +optional
 	SessionID string `json:"sessionID,omitempty"`
+
+	// SessionConfig holds optional per-session configuration overrides.
+	// +optional
+	SessionConfig *SessionConfig `json:"sessionConfig,omitempty"`
 }
 
 // KubeCopilotSendStatus defines the observed state of KubeCopilotSend.

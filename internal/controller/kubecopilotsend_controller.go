@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -43,13 +44,39 @@ type KubeCopilotSendReconciler struct {
 // +kubebuilder:rbac:groups=kubecopilot.io,resources=kubecopilotsends/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubecopilot.io,resources=kubecopilotsends/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kubecopilot.io,resources=kubecopilotresponses,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+
+type providerConfig struct {
+	Type    string `json:"type,omitempty"`
+	BaseURL string `json:"base_url,omitempty"`
+	APIKey  string `json:"api_key,omitempty"`
+}
+
+type customAgentConfig struct {
+	Name        string   `json:"name"`
+	DisplayName string   `json:"display_name,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Prompt      string   `json:"prompt"`
+	Tools       []string `json:"tools,omitempty"`
+	Infer       *bool    `json:"infer,omitempty"`
+}
+
+type sessionConfigPayload struct {
+	Model          string              `json:"model,omitempty"`
+	SystemMessage  string              `json:"system_message,omitempty"`
+	DisabledSkills []string            `json:"disabled_skills,omitempty"`
+	CustomAgents   []customAgentConfig `json:"custom_agents,omitempty"`
+	Provider       *providerConfig     `json:"provider,omitempty"`
+	ToolsConfig    map[string]bool     `json:"tools_config,omitempty"`
+}
 
 type asyncChatRequest struct {
-	Message   string `json:"message"`
-	SessionID string `json:"session_id,omitempty"`
-	SendRef   string `json:"send_ref,omitempty"`
-	Namespace string `json:"namespace,omitempty"`
-	AgentRef  string `json:"agent_ref,omitempty"`
+	Message       string                `json:"message"`
+	SessionID     string                `json:"session_id,omitempty"`
+	SendRef       string                `json:"send_ref,omitempty"`
+	Namespace     string                `json:"namespace,omitempty"`
+	AgentRef      string                `json:"agent_ref,omitempty"`
+	SessionConfig *sessionConfigPayload `json:"session_config,omitempty"`
 }
 
 type asyncChatResponse struct {
@@ -91,6 +118,48 @@ func (r *KubeCopilotSendReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		SendRef:   send.Name,
 		Namespace: send.Namespace,
 		AgentRef:  send.Spec.AgentRef,
+	}
+
+	// Forward optional session config
+	if sc := send.Spec.SessionConfig; sc != nil {
+		payload := &sessionConfigPayload{
+			Model:          sc.Model,
+			SystemMessage:  sc.SystemMessage,
+			DisabledSkills: sc.DisabledSkills,
+			ToolsConfig:    sc.ToolsConfig,
+		}
+		for _, ca := range sc.CustomAgents {
+			payload.CustomAgents = append(payload.CustomAgents, customAgentConfig{
+				Name:        ca.Name,
+				DisplayName: ca.DisplayName,
+				Description: ca.Description,
+				Prompt:      ca.Prompt,
+				Tools:       ca.Tools,
+				Infer:       ca.Infer,
+			})
+		}
+		// Resolve provider Secret if referenced
+		if sc.Provider != nil {
+			pc := &providerConfig{
+				Type:    sc.Provider.Type,
+				BaseURL: sc.Provider.BaseURL,
+			}
+			if sc.Provider.SecretRef != "" {
+				secret := &corev1.Secret{}
+				secretKey := types.NamespacedName{Name: sc.Provider.SecretRef, Namespace: send.Namespace}
+				if err := r.Get(ctx, secretKey, secret); err != nil {
+					log.Error(err, "Failed to get provider secret", "secretRef", sc.Provider.SecretRef)
+					send.Status.Phase = phaseError
+					send.Status.ErrorMessage = fmt.Sprintf("provider secret not found: %v", err)
+					return ctrl.Result{}, r.Status().Update(ctx, send)
+				}
+				if apiKey, ok := secret.Data["api-key"]; ok {
+					pc.APIKey = string(apiKey)
+				}
+			}
+			payload.Provider = pc
+		}
+		reqBody.SessionConfig = payload
 	}
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
