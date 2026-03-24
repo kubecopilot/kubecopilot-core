@@ -10,33 +10,112 @@ A Kubernetes operator that deploys a Copilot CLI as an AI agent inside your clus
 
 - **Multi-turn conversations** with session continuity
 - **Real-time streaming** of agent activity via `KubeCopilotChunk` CRDs
-- **Custom skills** loaded from a ConfigMap (bash scripts the agent can invoke)
-- **Custom instructions** via an `AGENT.md` ConfigMap
-- **Cancellation** of in-flight requests
-- **A web UI** for chatting with agents and browsing session history
-
+- **Custom skills** loaded from a ConfigMap or managed at runtime via the UI
+- **Custom instructions** via an `AGENT.md` ConfigMap or editable live
+- **Custom agents** — define inline agent personas with specific prompts and tool sets
+- **Dynamic model selection** — switch models at runtime without redeploying
+- **BYOK (Bring Your Own Key)** — use an external OpenAI-compatible or Azure OpenAI provider, with API keys stored securely in Kubernetes Secrets
+- **Cancellation** of in-flight requests via SDK session disconnect
+- **A web UI** with a settings panel for chatting with agents, browsing session history, and configuring agent behaviour at runtime
 
 `kube-copilot-agent` is designed to be extensible. Check for more information at [Agent Server Container](#agent-server-container).
 
 ### Architecture
 
+```mermaid
+flowchart TB
+    subgraph ui["🖥️ Web UI"]
+        chat["Chat Panel"]
+        settings["Settings Dialog<br/><sub>Model · Instructions · Skills · Agents · BYOK</sub>"]
+    end
+
+    subgraph backend["⚙️ Web UI Backend"]
+        main["main.py"]
+        k8s["k8s_client.py"]
+    end
+
+    subgraph operator["🎛️ Operator"]
+        ctrl["Controller Manager"]
+        webhook["Webhook Server"]
+    end
+
+    subgraph agent["🤖 Agent Pod"]
+        sdk["CopilotClient<br/><sub>GitHub Copilot Python SDK</sub>"]
+        cli["Copilot CLI<br/><sub>server mode · JSON-RPC</sub>"]
+        pvc[("PVC<br/><sub>sessions · skills<br/>instructions · agents</sub>")]
+    end
+
+    subgraph crds["📋 Kubernetes CRDs"]
+        send["KubeCopilotSend"]
+        chunk["KubeCopilotChunk"]
+        resp["KubeCopilotResponse"]
+        cancel["KubeCopilotCancel"]
+    end
+
+    secrets[("🔐 K8s Secrets<br/><sub>GitHub token · BYOK API keys</sub>")]
+
+    chat -- "/chat/stream" --> main
+    settings -- "/api/agents/{ref}/..." --> main
+    main --> k8s
+    k8s -- "creates CR" --> send
+    k8s -- "proxy HTTP" --> sdk
+    k8s -- "CRUD" --> secrets
+
+    ctrl -- "reconciles" --> send
+    ctrl -- "reads" --> secrets
+    ctrl -- "POST /asyncchat<br/><sub>+ session_config</sub>" --> sdk
+
+    sdk -- "JSON-RPC" --> cli
+    sdk -- "reads/writes" --> pvc
+
+    sdk -- "POST /chunk" --> webhook
+    sdk -- "POST /response" --> webhook
+
+    webhook -- "creates" --> chunk
+    webhook -- "creates" --> resp
+
+    cancel -. "DELETE /cancel" .-> sdk
+
+    style ui fill:#1a1a2e,stroke:#00bcd4,color:#e0e0e0
+    style backend fill:#16213e,stroke:#00bcd4,color:#e0e0e0
+    style operator fill:#0f3460,stroke:#00bcd4,color:#e0e0e0
+    style agent fill:#1a1a2e,stroke:#e94560,color:#e0e0e0
+    style crds fill:#16213e,stroke:#ffc107,color:#e0e0e0
 ```
-User / Web UI
-     │
-     ▼
-KubeCopilotSend (CR)          ← user creates this to send a message
-     │
-     ▼
-Operator (controller-manager)
-     │  POST /asyncchat
-     ▼
-Agent Pod (copilot CLI wrapper)
-     │  tails events.jsonl, POSTs chunks + response to webhook
-     ▼
-Webhook server (inside operator)
-     │  creates CRDs
-     ├──► KubeCopilotChunk    (real-time streaming events)
-     └──► KubeCopilotResponse (final answer)
+
+#### Request Flow
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as Web UI
+    participant BE as Backend
+    participant K8s as Kubernetes API
+    participant Ctrl as Controller
+    participant Agent as Agent Server (SDK)
+    participant CLI as Copilot CLI
+
+    User->>UI: Send message
+    UI->>BE: POST /chat/stream
+    BE->>K8s: Create KubeCopilotSend CR
+    Ctrl->>K8s: Watch & reconcile Send
+    Ctrl->>K8s: Read Secret (if BYOK)
+    Ctrl->>Agent: POST /asyncchat + session_config
+
+    Agent->>CLI: session.send(message)
+
+    loop Streaming events
+        CLI-->>Agent: assistant.message_delta
+        Agent-->>Ctrl: POST /chunk (webhook)
+        Ctrl-->>K8s: Create KubeCopilotChunk
+    end
+
+    CLI-->>Agent: session.idle
+    Agent-->>Ctrl: POST /response (webhook)
+    Ctrl-->>K8s: Create KubeCopilotResponse
+    K8s-->>BE: Watch response
+    BE-->>UI: SSE stream
+    UI-->>User: Display answer
 ```
 
 ### CRDs
@@ -370,6 +449,77 @@ data:
 
 ---
 
+## Dynamic Configuration (Runtime Settings)
+
+The web UI includes a **Settings dialog** (⚙️ button) that lets you configure agent behaviour at runtime — no pod restart or Helm upgrade needed.
+
+```mermaid
+graph LR
+    subgraph settings["⚙️ Settings Dialog"]
+        A["🧠 Model<br/><sub>Select LLM model</sub>"]
+        B["📝 Instructions<br/><sub>Edit copilot-instructions.md</sub>"]
+        C["🛠️ Skills<br/><sub>Add/edit/delete SKILL.md</sub>"]
+        D["🤖 Custom Agents<br/><sub>Define agent personas</sub>"]
+        E["🔑 BYOK<br/><sub>External provider config</sub>"]
+    end
+
+    subgraph storage["Storage"]
+        PVC[("PVC<br/><sub>instructions · skills<br/>custom-agents.json</sub>")]
+        Secret[("K8s Secret<br/><sub>API key</sub>")]
+    end
+
+    A --> |"per-request"| SDK["Agent Server"]
+    B --> |"PUT /config/instructions"| PVC
+    C --> |"PUT /config/skills/{name}"| PVC
+    D --> |"PUT /config/agents"| PVC
+    E --> |"upsert Secret"| Secret
+
+    style settings fill:#1a1a2e,stroke:#00bcd4,color:#e0e0e0
+    style storage fill:#16213e,stroke:#ffc107,color:#e0e0e0
+```
+
+### Model Selection
+
+Switch between available Copilot models at runtime. The UI queries `/models` (backed by `client.list_models()` from the SDK) and sends the chosen model with each request via the `session_config.model` field.
+
+### Runtime Instructions
+
+Edit the agent's `copilot-instructions.md` file directly from the UI. Changes are written to the PVC and take effect on the next session — no restart needed.
+
+### Runtime Skills
+
+Create, edit, or delete skills through the UI. Each skill is stored as a `SKILL.md` file under `$COPILOT_HOME/skills/<name>/` on the PVC.
+
+### Custom Agents
+
+Define inline agent personas with specific prompts and tool restrictions. Stored as `custom-agents.json` on the PVC and loaded into each SDK session.
+
+### BYOK (Bring Your Own Key)
+
+Configure an external OpenAI-compatible or Azure OpenAI provider:
+- **Provider type** and **base URL** are stored in the `KubeCopilotSend` CR's `sessionConfig.provider` field
+- **API keys** are stored securely in a Kubernetes Secret and read by the controller at reconciliation time — never persisted in CRDs
+
+```yaml
+# Example: KubeCopilotSend with session config
+apiVersion: kubecopilot.io/v1
+kind: KubeCopilotSend
+metadata:
+  name: my-question
+  namespace: kube-copilot-agent
+spec:
+  agentRef: github-copilot-agent
+  message: "What is the cluster health?"
+  sessionConfig:
+    model: "gpt-4o"
+    provider:
+      type: openai
+      baseURL: "https://api.openai.com/v1"
+      secretRef: my-provider-secret   # K8s Secret with 'api-key' key
+```
+
+---
+
 ## Chunk Types (Real-time Streaming)
 
 `KubeCopilotChunk` resources are created as the agent works:
@@ -387,43 +537,71 @@ data:
 
 ## Agent Server Container
 
-The `agent-server-container/` directory contains the HTTP shim that bridges the Kubernetes operator with an AI CLI tool running inside the agent pod. Each subdirectory implements the shim for a specific AI agent binary.
+The `agent-server-container/` directory contains the server that bridges the Kubernetes operator with an AI CLI tool running inside the agent pod. Each subdirectory implements the server for a specific AI agent binary.
 
 ```
 agent-server-container/
   github-copilot/       ← GitHub Copilot CLI implementation
-    server.py           ← FastAPI HTTP shim
+    server.py           ← FastAPI server (SDK-backed)
     entrypoint.sh       ← Container entrypoint (auth setup, skill staging)
     Containerfile       ← Container image definition
 ```
 
 ### How It Works
 
-The operator communicates with the agent pod over HTTP. The shim (`server.py`) exposes a small API that the operator calls and that POSTs results back to the operator's internal webhook:
+The GitHub Copilot implementation uses the **GitHub Copilot Python SDK** (`CopilotClient`) to communicate with the Copilot CLI running in server mode via JSON-RPC. This replaces the previous subprocess-per-request approach with a persistent connection, proper session management, and typed streaming events.
 
-```
-Operator                    Agent Pod (shim)
-   │                             │
-   │  POST /asyncchat            │
-   │ ──────────────────────────► │  enqueue message
-   │  ← { queue_id }             │
-   │                             │  spawn AI CLI subprocess
-   │                             │  tail events.jsonl / stdout
-   │  ◄── POST /chunk (webhook)  │  stream chunk events
-   │  ◄── POST /chunk (webhook)  │
-   │  ◄── POST /response         │  final answer
-   │                             │
-   │  DELETE /cancel/{queue_id}  │
-   │ ──────────────────────────► │  SIGTERM to process group
+```mermaid
+sequenceDiagram
+    participant Op as Operator
+    participant Shim as Agent Server (SDK)
+    participant CLI as Copilot CLI (server mode)
+
+    Note over Shim,CLI: Persistent JSON-RPC connection
+
+    Op->>Shim: POST /asyncchat + session_config
+    Shim-->>Op: { queue_id }
+    Shim->>CLI: create_session(opts) / resume_session()
+    Shim->>CLI: session.send(message)
+
+    loop SDK streaming events
+        CLI-->>Shim: assistant.message_delta
+        Shim-->>Op: POST /chunk (thinking/tool_call/response)
+        CLI-->>Shim: tool.execution_start
+        Shim-->>Op: POST /chunk (tool_call)
+        CLI-->>Shim: tool.execution_complete
+        Shim-->>Op: POST /chunk (tool_result)
+    end
+
+    CLI-->>Shim: session.idle
+    Shim->>CLI: session.disconnect()
+    Shim-->>Op: POST /response (final answer)
+
+    Note over Op,Shim: Cancellation
+    Op->>Shim: DELETE /cancel/{queue_id}
+    Shim->>CLI: session.disconnect()
 ```
 
-**API surface the shim must expose:**
+**Key SDK features used:**
+- `CopilotClient(SubprocessConfig)` — singleton managing the CLI in server mode
+- `PermissionHandler.approve_all` — auto-approve tool executions
+- `asyncio.Semaphore(3)` — bounded concurrency for parallel sessions
+- `client.list_models()` — query available models for the settings UI
+- `session.on(callback)` — typed event streaming for real-time chunks
+
+**API surface the server exposes:**
 
 | Endpoint | Method | Description |
 |---|---|---|
 | `/health` | GET | Liveness probe — return `{"status":"ok"}` |
-| `/asyncchat` | POST | Enqueue a message; returns `{"queue_id": "..."}` immediately |
-| `/cancel/{queue_id}` | DELETE | Kill the in-flight subprocess for the given queue |
+| `/asyncchat` | POST | Enqueue a message (with optional `session_config`); returns `{"queue_id": "..."}` |
+| `/chat` | POST | Synchronous chat — blocks until the agent responds |
+| `/cancel/{queue_id}` | DELETE | Disconnect the SDK session for a given queue item |
+| `/models` | GET | List available models via `client.list_models()` |
+| `/config/instructions` | GET/PUT | Read or update `copilot-instructions.md` on the PVC |
+| `/config/skills` | GET | List all skills on the PVC |
+| `/config/skills/{name}` | GET/PUT/DELETE | Read, create/update, or delete a skill |
+| `/config/agents` | GET/PUT | Read or update `custom-agents.json` on the PVC |
 
 **Webhook payloads the shim must POST to `$WEBHOOK_URL`:**
 
@@ -472,13 +650,25 @@ Final response (POST to `$WEBHOOK_URL`):
 
 To support a different AI CLI (such as [Claude Code](https://docs.anthropic.com/en/docs/claude-code)), create a new subdirectory under `agent-server-container/`:
 
-```
-agent-server-container/
-  github-copilot/    ← existing
-  claude-code/       ← new
-    server.py
-    entrypoint.sh
-    Containerfile
+```mermaid
+graph TB
+    subgraph repo["agent-server-container/"]
+        A["github-copilot/<br/><sub>existing · SDK-backed</sub>"]
+        B["claude-code/<br/><sub>new implementation</sub>"]
+    end
+
+    subgraph files["Required Files"]
+        F1["server.py<br/><sub>implement /health, /asyncchat, /cancel</sub>"]
+        F2["entrypoint.sh<br/><sub>auth setup, skill staging</sub>"]
+        F3["Containerfile<br/><sub>build the image</sub>"]
+    end
+
+    B --> F1
+    B --> F2
+    B --> F3
+
+    style repo fill:#1a1a2e,stroke:#00bcd4,color:#e0e0e0
+    style files fill:#16213e,stroke:#e94560,color:#e0e0e0
 ```
 
 #### 1. Write `entrypoint.sh`
@@ -636,39 +826,69 @@ make test
 
 ## Project Structure
 
+```mermaid
+graph LR
+    subgraph api["api/v1/"]
+        types["*_types.go<br/><sub>CRD schemas</sub>"]
+    end
+
+    subgraph ctrl["internal/controller/"]
+        agent_ctrl["kubecopilotagent_controller.go"]
+        send_ctrl["kubecopilotsend_controller.go"]
+        cancel_ctrl["kubecopilotcancel_controller.go"]
+    end
+
+    subgraph wh["internal/webhook/"]
+        server_wh["server.go<br/><sub>receives chunks + responses</sub>"]
+    end
+
+    subgraph agentsrv["agent-server-container/<br/>github-copilot/"]
+        srv["server.py<br/><sub>SDK-backed FastAPI</sub>"]
+        ep["entrypoint.sh"]
+        cf["Containerfile"]
+    end
+
+    subgraph webui["web-ui/"]
+        be["app/main.py + k8s_client.py"]
+        fe["app/static/index.html"]
+    end
+
+    subgraph config["config/"]
+        crds["crd/bases/ <sub>generated</sub>"]
+        rbac["rbac/ <sub>generated</sub>"]
+        mgr["manager/"]
+        samples["samples/"]
+    end
+
+    subgraph helm_dir["helm/"]
+        h1["kube-copilot-agent/"]
+        h2["github-copilot-agent/"]
+        h3["kube-copilot-ui/"]
+    end
+
+    types --> crds
+    types --> ctrl
+    ctrl --> agentsrv
+    server_wh --> api
+
+    style api fill:#1a1a2e,stroke:#00bcd4,color:#e0e0e0
+    style ctrl fill:#16213e,stroke:#00bcd4,color:#e0e0e0
+    style wh fill:#0f3460,stroke:#00bcd4,color:#e0e0e0
+    style agentsrv fill:#1a1a2e,stroke:#e94560,color:#e0e0e0
+    style webui fill:#16213e,stroke:#e94560,color:#e0e0e0
+    style config fill:#0f3460,stroke:#ffc107,color:#e0e0e0
+    style helm_dir fill:#1a1a2e,stroke:#ffc107,color:#e0e0e0
 ```
-api/v1/                          CRD type definitions
-  kubecopilotagent_types.go      KubeCopilotAgent
-  kubecopilotcancel_types.go     KubeCopilotCancel
-  kubecopilotchunk_types.go      KubeCopilotChunk
-  kubecopilotmessage_types.go    KubeCopilotMessage
-  kubecopilotresponse_types.go   KubeCopilotResponse
-  kubecopilotsend_types.go       KubeCopilotSend
 
-internal/controller/
-  kubecopilotagent_controller.go    Creates/manages agent pods and services
-  kubecopilotsend_controller.go     Forwards messages to the agent
-  kubecopilotcancel_controller.go   Cancels in-flight requests
-
-internal/webhook/
-  server.go                    HTTP server receiving chunks + responses from agent pod
-
-agent-server-container/github-copilot/
-  server.py                    FastAPI server wrapping the copilot CLI
-  Containerfile                Agent container image definition
-
-web-ui/
-  app/main.py                  FastAPI web UI backend
-  app/k8s_client.py            Kubernetes API client
-  app/static/index.html        Single-page chat UI
-  deploy/base/                 Kustomize manifests for the web UI
-
-config/
-  crd/bases/                   Generated CRD manifests (do not edit)
-  rbac/                        RBAC roles and bindings
-  manager/                     Operator deployment manifests
-  samples/                     Example CRs and supporting resources
-```
+| Directory | Purpose |
+|---|---|
+| `api/v1/` | CRD type definitions (`*_types.go`) |
+| `internal/controller/` | Reconciliation logic (agent, send, cancel controllers) |
+| `internal/webhook/` | HTTP server receiving chunks + responses from agent pod |
+| `agent-server-container/github-copilot/` | SDK-backed FastAPI server wrapping the Copilot CLI |
+| `web-ui/` | FastAPI backend + single-page chat UI with settings panel |
+| `config/` | Generated CRDs, RBAC, manager manifests, samples |
+| `helm/` | Helm charts for operator, agent instance, and web UI |
 
 ---
 
