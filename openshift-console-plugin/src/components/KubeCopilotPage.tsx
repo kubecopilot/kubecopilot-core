@@ -7,10 +7,18 @@ import {
   EmptyStateBody,
   Spinner,
 } from '@patternfly/react-core';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import './KubeCopilotPage.css';
 
 const PLUGIN_CONFIG_URL = '/api/plugins/kube-copilot-console-plugin/plugin-config.json';
+
+/** Find the console main content area element. */
+function findMainElement(): HTMLElement | null {
+  return (
+    (document.querySelector('.pf-v5-c-page__main') as HTMLElement) ||
+    (document.querySelector('main') as HTMLElement)
+  );
+}
 
 export default function KubeCopilotPage() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -19,45 +27,71 @@ export default function KubeCopilotPage() {
   const [configError, setConfigError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [iframeError, setIframeError] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  // Position the fixed wrapper to exactly cover the console main content area
+  const adjust = useCallback(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const main = findMainElement();
+    if (!main) return;
+    const r = main.getBoundingClientRect();
+    el.style.top = `${r.top}px`;
+    el.style.left = `${r.left}px`;
+    el.style.width = `${r.width}px`;
+    el.style.height = `${r.height}px`;
+    el.style.right = 'unset';
+    el.style.bottom = 'unset';
+    if (!ready) setReady(true);
+  }, [ready]);
 
   // Measure the actual page main content area and position the wrapper to match it exactly
   useEffect(() => {
-    const adjust = () => {
-      const el = wrapperRef.current;
-      if (!el) return;
-      // The console renders plugin page content inside .pf-v5-c-page__main
-      const main =
-        document.querySelector('.pf-v5-c-page__main') as HTMLElement ||
-        document.querySelector('main') as HTMLElement;
-      if (main) {
-        const r = main.getBoundingClientRect();
-        el.style.top    = `${r.top}px`;
-        el.style.left   = `${r.left}px`;
-        el.style.width  = `${r.width}px`;
-        el.style.height = `${r.height}px`;
-        el.style.right  = 'unset';
-        el.style.bottom = 'unset';
+    // Initial positioning (with retry for late-rendering elements)
+    const tryAdjust = () => {
+      adjust();
+      if (!findMainElement()) {
+        // Retry a few times if the main element is not available yet
+        const retryId = setTimeout(tryAdjust, 100);
+        return () => clearTimeout(retryId);
       }
     };
+    requestAnimationFrame(tryAdjust);
 
-    // Run immediately and on any layout change
-    adjust();
+    // Re-adjust on viewport resize
     window.addEventListener('resize', adjust);
+
+    // Watch the main content area for size changes via ResizeObserver
+    const main = findMainElement();
+    let ro: ResizeObserver | undefined;
+    if (main && typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(adjust);
+      ro.observe(main);
+    }
+
+    // Watch sidebar and page elements for class/style mutations (e.g. sidebar toggle)
     const mo = new MutationObserver(adjust);
-    document.querySelectorAll('.pf-v5-c-page, .pf-v5-c-page__sidebar').forEach(node =>
-      mo.observe(node, { attributes: true, childList: false, subtree: false, attributeFilter: ['class', 'style'] })
+    document.querySelectorAll('.pf-v5-c-page, .pf-v5-c-page__sidebar').forEach((node) =>
+      mo.observe(node, {
+        attributes: true,
+        childList: false,
+        subtree: false,
+        attributeFilter: ['class', 'style'],
+      }),
     );
+
     return () => {
       window.removeEventListener('resize', adjust);
+      ro?.disconnect();
       mo.disconnect();
     };
-  }, []);
+  }, [adjust]);
 
   // Fetch plugin config to get the web-ui Route URL
   useEffect(() => {
     fetch(PLUGIN_CONFIG_URL)
-      .then(r => r.json())
-      .then(cfg => {
+      .then((r) => r.json())
+      .then((cfg) => {
         if (cfg?.webUIUrl) {
           setWebUIUrl(cfg.webUIUrl);
         } else {
@@ -135,7 +169,10 @@ export default function KubeCopilotPage() {
   return (
     <>
       <DocumentTitle>KubeCopilot AI</DocumentTitle>
-      <div className="kube-copilot-plugin" ref={wrapperRef}>
+      <div
+        className={`kube-copilot-plugin${ready ? ' kube-copilot-plugin--ready' : ''}`}
+        ref={wrapperRef}
+      >
         {loading && (
           <div className="kube-copilot-plugin__loading">
             <Spinner size="xl" />
