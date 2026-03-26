@@ -643,7 +643,11 @@ func (r *KubeCopilotAgentReconciler) ensureKubeconfigSecret(
 	}
 
 	// Update the kubeconfig if it has changed.
-	if string(secret.Data["config"]) != kubeconfig {
+	existing := ""
+	if secret.Data != nil {
+		existing = string(secret.Data["config"])
+	}
+	if existing != kubeconfig {
 		secret.StringData = map[string]string{
 			"config": kubeconfig,
 		}
