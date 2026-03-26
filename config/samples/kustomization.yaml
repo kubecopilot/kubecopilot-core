@@ -3,6 +3,7 @@ resources:
 - agent_v1_kubecopilotagent.yaml
 - agent_v1_kubecopilotmessage.yaml
 - kubecopilot_v1_kubecopilotsend.yaml
+- agent_v1_kubecopilotsession.yaml
 - agent-md-configmap.yaml
 - skills-configmap.yaml
 - namespace.yaml

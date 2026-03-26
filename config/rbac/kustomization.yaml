@@ -22,6 +22,9 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the kube-copilot-agent itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
+- kubecopilotsession_admin_role.yaml
+- kubecopilotsession_editor_role.yaml
+- kubecopilotsession_viewer_role.yaml
 - kubecopilotmessage_admin_role.yaml
 - kubecopilotmessage_editor_role.yaml
 - kubecopilotmessage_viewer_role.yaml

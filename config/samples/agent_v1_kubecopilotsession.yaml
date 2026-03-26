@@ -1,0 +1,15 @@
+apiVersion: kubecopilot.io/v1
+kind: KubeCopilotSession
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-copilot-agent
+    app.kubernetes.io/managed-by: kustomize
+  name: tenant-alice
+  namespace: kube-copilot-agent
+spec:
+  # Unique identifier for the tenant owning this session.
+  tenantID: alice
+  # Reference to an existing KubeCopilotAgent in the same namespace.
+  agentRef: github-copilot-agent
+  # "strict" (default) installs a deny-all NetworkPolicy; "none" skips it.
+  isolationLevel: strict

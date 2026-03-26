@@ -8,6 +8,7 @@ resources:
 - bases/kubecopilot.io_kubecopilotmessages.yaml
 - bases/kubecopilot.io_kubecopilotresponses.yaml
 - bases/kubecopilot.io_kubecopilotsends.yaml
+- bases/agent.kubecopilot.io_kubecopilotsessions.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

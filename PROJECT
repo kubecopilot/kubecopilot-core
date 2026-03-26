@@ -39,7 +39,6 @@ resources:
 - api:
     crdVersion: v1
     namespaced: true
-  controller: false
   domain: kubecopilot.io
   group: agent
   kind: KubeCopilotResponse
@@ -48,7 +47,6 @@ resources:
 - api:
     crdVersion: v1
     namespaced: true
-  controller: false
   domain: kubecopilot.io
   group: agent
   kind: KubeCopilotChunk
@@ -61,6 +59,15 @@ resources:
   domain: kubecopilot.io
   group: agent
   kind: KubeCopilotCancel
+  path: github.com/gfontana/kube-copilot-agent/api/v1
+  version: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: kubecopilot.io
+  group: agent
+  kind: KubeCopilotSession
   path: github.com/gfontana/kube-copilot-agent/api/v1
   version: v1
 version: "3"
