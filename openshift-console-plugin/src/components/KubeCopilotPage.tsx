@@ -42,32 +42,39 @@ export default function KubeCopilotPage() {
     el.style.height = `${r.height}px`;
     el.style.right = 'unset';
     el.style.bottom = 'unset';
-    if (!ready) setReady(true);
-  }, [ready]);
+    setReady((prev) => (prev ? prev : true));
+  }, []);
 
   // Measure the actual page main content area and position the wrapper to match it exactly
   useEffect(() => {
-    // Initial positioning (with retry for late-rendering elements)
+    let retryCount = 0;
+    const MAX_RETRIES = 20;
+    let retryId: ReturnType<typeof setTimeout> | undefined;
+    let rafId: ReturnType<typeof requestAnimationFrame> | undefined;
+    let ro: ResizeObserver | undefined;
+
+    // Attach ResizeObserver to the main content area once it is available
+    const attachResizeObserver = (main: HTMLElement) => {
+      if (ro || typeof ResizeObserver === 'undefined') return;
+      ro = new ResizeObserver(adjust);
+      ro.observe(main);
+    };
+
+    // Initial positioning (with bounded retry for late-rendering elements)
     const tryAdjust = () => {
       adjust();
-      if (!findMainElement()) {
-        // Retry a few times if the main element is not available yet
-        const retryId = setTimeout(tryAdjust, 100);
-        return () => clearTimeout(retryId);
+      const main = findMainElement();
+      if (main) {
+        attachResizeObserver(main);
+      } else if (retryCount < MAX_RETRIES) {
+        retryCount++;
+        retryId = setTimeout(tryAdjust, 100);
       }
     };
-    requestAnimationFrame(tryAdjust);
+    rafId = requestAnimationFrame(tryAdjust);
 
     // Re-adjust on viewport resize
     window.addEventListener('resize', adjust);
-
-    // Watch the main content area for size changes via ResizeObserver
-    const main = findMainElement();
-    let ro: ResizeObserver | undefined;
-    if (main && typeof ResizeObserver !== 'undefined') {
-      ro = new ResizeObserver(adjust);
-      ro.observe(main);
-    }
 
     // Watch sidebar and page elements for class/style mutations (e.g. sidebar toggle)
     const mo = new MutationObserver(adjust);
@@ -81,6 +88,8 @@ export default function KubeCopilotPage() {
     );
 
     return () => {
+      if (rafId !== undefined) cancelAnimationFrame(rafId);
+      if (retryId !== undefined) clearTimeout(retryId);
       window.removeEventListener('resize', adjust);
       ro?.disconnect();
       mo.disconnect();
