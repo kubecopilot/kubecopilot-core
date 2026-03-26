@@ -10,12 +10,15 @@ document.addEventListener("DOMContentLoaded", function () {
   if (toggle && links) {
     toggle.addEventListener("click", function () {
       links.classList.toggle("open");
+      var expanded = links.classList.contains("open");
+      toggle.setAttribute("aria-expanded", String(expanded));
     });
 
     // Close menu on link click
     links.querySelectorAll("a").forEach(function (link) {
       link.addEventListener("click", function () {
         links.classList.remove("open");
+        toggle.setAttribute("aria-expanded", "false");
       });
     });
   }
@@ -51,12 +54,19 @@ document.addEventListener("DOMContentLoaded", function () {
   });
 
   // --- Smooth scroll for anchor links ---
+  var prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   document.querySelectorAll('a[href^="#"]').forEach(function (anchor) {
     anchor.addEventListener("click", function (e) {
-      var target = document.querySelector(this.getAttribute("href"));
+      var href = this.getAttribute("href");
+      if (!href || href === "#") return;
+      try {
+        var target = document.querySelector(href);
+      } catch (_) {
+        return;
+      }
       if (target) {
         e.preventDefault();
-        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        target.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "start" });
       }
     });
   });

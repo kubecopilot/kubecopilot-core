@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "website/**"
+      - "docs/screenshots/**"
       - ".github/workflows/deploy-website.yml"
   workflow_dispatch:
 
@@ -26,6 +27,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Copy screenshots into website
+        run: |
+          mkdir -p website/docs/screenshots
+          cp docs/screenshots/*.png website/docs/screenshots/
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
