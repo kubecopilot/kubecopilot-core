@@ -24,3 +24,17 @@ spec:
   kubeconfigSecretRef:
     name: {{ .Values.kubeconfigSecretRef }}
   {{- end }}
+  {{- if .Values.rbac }}
+  rbac:
+    {{- if .Values.rbac.serviceAccountName }}
+    serviceAccountName: {{ .Values.rbac.serviceAccountName }}
+    {{- end }}
+    {{- if .Values.rbac.rules }}
+    rules:
+      {{- toYaml .Values.rbac.rules | nindent 6 }}
+    {{- end }}
+    {{- if .Values.rbac.clusterRules }}
+    clusterRules:
+      {{- toYaml .Values.rbac.clusterRules | nindent 6 }}
+    {{- end }}
+  {{- end }}

@@ -312,6 +312,8 @@ kubectl create secret generic cluster-kubeconfig \
   -n kube-copilot-agent
 ```
 
+Alternatively, use [ServiceAccount-based permissions](#serviceaccount-based-permissions) to let the operator manage RBAC for you automatically.
+
 ### Step 3 — Deploy the GitHub Copilot Agent
 
 The `github-copilot-agent` chart creates the `KubeCopilotAgent` CR, a GitHub token Secret, and ConfigMaps for skills and `AGENT.md`. Default skills (monitor, deploy, troubleshoot) and a SysAdmin persona are included out of the box.
@@ -386,6 +388,7 @@ helm upgrade --install my-agent ./helm/github-copilot-agent \
 | `image` | `""` | Override the agent container image |
 | `storageSize` | `1Gi` | PVC size for session history |
 | `kubeconfigSecretRef` | `""` | Existing Secret name with a kubeconfig |
+| `rbac` | `{}` | RBAC config (SA, rules, clusterRules) — see [ServiceAccount Permissions](#serviceaccount-based-permissions) |
 | `createSkillsConfigMap` | `true` | Create a skills ConfigMap from `skillsContent` |
 | `skillsConfigMap` | `""` | Reference an existing skills ConfigMap |
 | `createAgentConfigMap` | `true` | Create an AGENT.md ConfigMap from `agentContent` |
@@ -693,6 +696,115 @@ spec:
 | `response` | Final answer text |
 | `info` | Processing status (e.g. "Processing: ...") |
 | `error` | Error during processing or cancellation |
+
+### ServiceAccount-Based Permissions
+
+By default, agents interact with the cluster through a manually-created `kubeconfigSecretRef`. The **RBAC configuration** option lets the operator manage all of this automatically — creating a dedicated ServiceAccount, RBAC Role/ClusterRole, bindings, and a kubeconfig Secret so each agent runs with **least-privilege** access.
+
+#### How it works
+
+When you set `spec.rbac` in a `KubeCopilotAgent`, the operator:
+
+1. **Creates a ServiceAccount** (name defaults to `<agent-name>-sa` or uses `rbac.serviceAccountName`)
+2. **Creates a Role** (namespace-scoped) with the rules you specify in `rbac.rules`
+3. **Creates a RoleBinding** to bind the ServiceAccount to that Role
+4. **Creates a ClusterRole** (cluster-scoped) with the rules in `rbac.clusterRules` (optional)
+5. **Creates a ClusterRoleBinding** to bind the ServiceAccount to that ClusterRole
+6. **Generates a kubeconfig Secret** that uses the ServiceAccount token for authentication
+7. **Mounts the kubeconfig** into the agent pod at `/copilot/.kube/config`
+
+All resources are owned by the `KubeCopilotAgent` and garbage-collected when it is deleted.
+
+> [!NOTE]
+> `spec.rbac` is mutually exclusive with `spec.kubeconfigSecretRef`. Use one or the other.
+
+#### CR Example
+
+```yaml
+apiVersion: kubecopilot.io/v1
+kind: KubeCopilotAgent
+metadata:
+  name: my-agent
+  namespace: kube-copilot-agent
+spec:
+  githubTokenSecretRef:
+    name: github-token
+  rbac:
+    serviceAccountName: my-agent-sa   # optional, defaults to "<name>-sa"
+    rules:                             # namespace-scoped
+      - apiGroups: [""]
+        resources: ["pods", "services", "configmaps", "events"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["deployments", "replicasets"]
+        verbs: ["get", "list", "watch"]
+    clusterRules:                      # cluster-scoped (optional)
+      - apiGroups: [""]
+        resources: ["namespaces", "nodes"]
+        verbs: ["get", "list"]
+```
+
+#### Helm Example
+
+```sh
+helm upgrade --install my-agent ./helm/github-copilot-agent \
+  --namespace kube-copilot-agent \
+  --set githubToken.value=<your-pat> \
+  --set rbac.serviceAccountName=my-agent-sa \
+  --set 'rbac.rules[0].apiGroups[0]=""' \
+  --set 'rbac.rules[0].resources[0]=pods' \
+  --set 'rbac.rules[0].resources[1]=services' \
+  --set 'rbac.rules[0].verbs[0]=get' \
+  --set 'rbac.rules[0].verbs[1]=list' \
+  --set 'rbac.rules[0].verbs[2]=watch'
+```
+
+Or use a values file:
+
+```yaml
+# my-agent-rbac-values.yaml
+githubToken:
+  existingSecret: github-token
+
+rbac:
+  serviceAccountName: my-agent-sa
+  rules:
+    - apiGroups: [""]
+      resources: ["pods", "services", "configmaps"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["apps"]
+      resources: ["deployments"]
+      verbs: ["get", "list", "watch"]
+  clusterRules:
+    - apiGroups: [""]
+      resources: ["namespaces", "nodes"]
+      verbs: ["get", "list"]
+```
+
+```sh
+helm upgrade --install my-agent ./helm/github-copilot-agent \
+  --namespace kube-copilot-agent \
+  -f my-agent-rbac-values.yaml
+```
+
+#### Verifying Permissions
+
+After deploying, verify the agent's effective permissions:
+
+```sh
+# Check what the ServiceAccount can do in the agent namespace
+kubectl auth can-i --list \
+  --as=system:serviceaccount:kube-copilot-agent:my-agent-sa \
+  -n kube-copilot-agent
+
+# Check cluster-scoped permissions
+kubectl auth can-i list namespaces \
+  --as=system:serviceaccount:kube-copilot-agent:my-agent-sa
+
+# Inspect the generated RBAC resources
+kubectl get sa,role,rolebinding -n kube-copilot-agent -l app.kubernetes.io/managed-by=kube-copilot-agent
+kubectl get clusterrole,clusterrolebinding | grep my-agent
+```
 
 ---
 

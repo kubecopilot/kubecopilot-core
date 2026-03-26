@@ -28,7 +28,28 @@ storageSize: "1Gi"
 # Name of an existing Secret containing a kubeconfig file.
 # If set, the operator mounts this secret so the agent can talk to the cluster.
 # Leave empty to use the in-cluster service account credentials.
+# Mutually exclusive with rbac — when rbac is configured, the operator generates
+# the kubeconfig automatically.
 kubeconfigSecretRef: ""
+
+# RBAC configuration.
+# When set, the operator creates a ServiceAccount, Role/ClusterRole,
+# RoleBinding/ClusterRoleBinding, and a kubeconfig Secret automatically so the
+# agent pod runs with least-privilege access scoped to these permissions.
+# This is mutually exclusive with kubeconfigSecretRef.
+#
+# Example:
+#   rbac:
+#     serviceAccountName: my-agent-sa      # optional, defaults to "<name>-sa"
+#     rules:                                # namespace-scoped permissions
+#       - apiGroups: [""]
+#         resources: ["pods", "services"]
+#         verbs: ["get", "list", "watch"]
+#     clusterRules:                         # cluster-scoped permissions
+#       - apiGroups: [""]
+#         resources: ["namespaces"]
+#         verbs: ["get", "list"]
+rbac: {}
 
 # Skills ConfigMap.
 # Set createSkillsConfigMap=true to have this chart create a ConfigMap from skillsContent.
