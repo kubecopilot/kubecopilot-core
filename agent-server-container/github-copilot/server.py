@@ -389,18 +389,8 @@ async def _run_sdk_streaming(
     # Send the message
     await session.send(message)
 
-    # Wait for completion (generous timeout for complex tool-use chains)
-    try:
-        await asyncio.wait_for(done.wait(), timeout=300)
-    except asyncio.TimeoutError:
-        if chunk_url and send_ref:
-            await _post_chunk(
-                chunk_url, send_ref, resolved_session_id or session_id,
-                agent_ref, namespace, sequence, "error",
-                "⏱️ Request timed out after 300s",
-            )
-        await session.disconnect()
-        raise HTTPException(status_code=504, detail="SDK session timed out")
+    # Wait for completion (no timeout — complex tool-use chains can take arbitrarily long)
+    await done.wait()
     finally:
         if queue_id:
             _active_sessions.pop(queue_id, None)
@@ -606,11 +596,7 @@ async def chat(req: ChatRequest):
     session.on(on_event)
     await session.send(req.message)
 
-    try:
-        await asyncio.wait_for(done.wait(), timeout=120)
-    except asyncio.TimeoutError:
-        await session.disconnect()
-        raise HTTPException(status_code=504, detail="Copilot SDK timed out")
+    await done.wait()
 
     await session.disconnect()
 
