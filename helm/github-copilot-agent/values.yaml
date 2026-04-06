@@ -303,6 +303,137 @@ skillsContent:
     kubectl top pods -A --sort-by=memory | head -20
     ```
 
+  background-monitoring.md: |
+    ---
+    name: background-monitoring
+    description: >
+      Register background monitoring tasks that watch Kubernetes resources and
+      send notifications when conditions are met. Useful for node readiness,
+      pod phase changes, and deployment rollout monitoring.
+    ---
+
+    # Background Monitoring
+
+    Use this skill when a user asks you to monitor a resource in the background
+    and notify them when a condition is met.
+
+    ## When to Use
+
+    - User asks to "watch", "monitor", or "let me know when" a resource changes.
+    - User wants to be notified when a node becomes Ready.
+    - User wants to track a pod until it is Running or Succeeded.
+    - User wants to watch a deployment rollout.
+
+    ## How It Works
+
+    Register a background task by calling the local task API. The agent server
+    will periodically check the condition and send a notification to the user
+    session when it is met.
+
+    ## Available Task Types
+
+    ### monitor_resource
+
+    Watch any Kubernetes resource for a status condition.
+
+    ```bash
+    curl -s -X POST http://localhost:8080/tasks/monitor \
+      -H "Content-Type: application/json" \
+      -d '{
+        "session_id": "<SESSION_ID>",
+        "agent_ref": "<AGENT_REF>",
+        "namespace": "<NAMESPACE>",
+        "task_type": "monitor_resource",
+        "config": {
+          "resource_type": "nodes",
+          "resource_name": "<NODE_NAME>",
+          "condition_type": "Ready",
+          "condition_status": "True",
+          "api_version": "v1"
+        },
+        "check_interval": 30,
+        "timeout": 3600,
+        "notification_message": "Node <NODE_NAME> is now Ready!",
+        "notification_type": "success",
+        "title": "Node Ready"
+      }'
+    ```
+
+    For namespaced resources, add `resource_namespace` to config:
+
+    ```bash
+    curl -s -X POST http://localhost:8080/tasks/monitor \
+      -H "Content-Type: application/json" \
+      -d '{
+        "session_id": "<SESSION_ID>",
+        "agent_ref": "<AGENT_REF>",
+        "namespace": "<NAMESPACE>",
+        "task_type": "monitor_resource",
+        "config": {
+          "resource_type": "deployments",
+          "resource_name": "<DEPLOY_NAME>",
+          "resource_namespace": "<RESOURCE_NS>",
+          "condition_type": "Available",
+          "condition_status": "True",
+          "api_version": "apps/v1"
+        },
+        "check_interval": 15,
+        "timeout": 1800,
+        "notification_message": "Deployment <DEPLOY_NAME> is now available!",
+        "notification_type": "success",
+        "title": "Deployment Available"
+      }'
+    ```
+
+    ### monitor_pod_phase
+
+    Watch a specific pod until it reaches a target phase.
+
+    ```bash
+    curl -s -X POST http://localhost:8080/tasks/monitor \
+      -H "Content-Type: application/json" \
+      -d '{
+        "session_id": "<SESSION_ID>",
+        "agent_ref": "<AGENT_REF>",
+        "namespace": "<NAMESPACE>",
+        "task_type": "monitor_pod_phase",
+        "config": {
+          "pod_name": "<POD_NAME>",
+          "pod_namespace": "<POD_NS>",
+          "target_phase": "Running"
+        },
+        "check_interval": 10,
+        "timeout": 600,
+        "notification_message": "Pod <POD_NAME> is now Running!",
+        "notification_type": "success",
+        "title": "Pod Ready"
+      }'
+    ```
+
+    ## Managing Tasks
+
+    ```bash
+    # List all tasks
+    curl -s http://localhost:8080/tasks
+
+    # Get a specific task
+    curl -s http://localhost:8080/tasks/<TASK_ID>
+
+    # Cancel a task
+    curl -s -X DELETE http://localhost:8080/tasks/<TASK_ID>
+    ```
+
+    ## Response Format
+
+    When you register a monitoring task, respond to the user with:
+    1. Confirmation that monitoring has been set up
+    2. What is being monitored and the condition
+    3. The check interval and timeout
+
+    Example response: "I've set up background monitoring for node worker-3.
+    I'll check every 30 seconds and notify you when the node becomes Ready.
+    The monitoring will timeout after 1 hour if the condition isn't met."
+
 # AGENT.md ConfigMap.
 # Set createAgentConfigMap=true to have this chart create a ConfigMap from agentContent.
 # Set agentConfigMap to reference an existing ConfigMap instead.

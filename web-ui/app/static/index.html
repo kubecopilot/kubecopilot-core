@@ -367,6 +367,54 @@
     }
     .item-delete-btn:hover { color: #f07178; }
 
+    /* ── Notifications ── */
+    .msg-row.notification .bubble {
+      border-left: 4px solid #2196f3;
+      background: var(--pico-card-background-color, var(--pico-secondary-background));
+      border: 1px solid var(--pico-muted-border-color);
+      border-bottom-left-radius: 0.2rem;
+    }
+    .msg-row.notification .bubble { border-left: 4px solid #2196f3; }
+    .msg-row.notification.notif-success .bubble { border-left-color: #4caf50; }
+    .msg-row.notification.notif-warning .bubble { border-left-color: #ff9800; }
+    .msg-row.notification.notif-error .bubble { border-left-color: #f44336; }
+    .notif-label {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--pico-muted-color); margin-bottom: 0.3rem;
+    }
+    .notif-title { font-weight: 600; margin-bottom: 0.2rem; }
+    /* Toast container */
+    .toast-container {
+      position: fixed; top: 1rem; right: 1rem; z-index: 10000;
+      display: flex; flex-direction: column; gap: 0.5rem; max-width: 400px;
+    }
+    .toast {
+      padding: 0.75rem 1rem; border-radius: 0.5rem;
+      background: var(--pico-card-background-color, #2a2a3e);
+      border: 1px solid var(--pico-muted-border-color);
+      border-left: 4px solid #2196f3;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      animation: slideIn 0.3s ease;
+      cursor: pointer;
+    }
+    .toast.toast-success { border-left-color: #4caf50; }
+    .toast.toast-warning { border-left-color: #ff9800; }
+    .toast.toast-error { border-left-color: #f44336; }
+    .toast-title { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.2rem; }
+    .toast-message { font-size: 0.8rem; color: var(--pico-muted-color); }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* ── Task indicator ── */
+    .task-indicator {
+      font-size: 0.75rem; padding: 0.2rem 0.6rem;
+      background: var(--pico-secondary-background);
+      border-radius: 0.3rem; cursor: pointer;
+      display: none; align-items: center; gap: 0.3rem;
+    }
+    .task-indicator.has-tasks { display: flex; }
+    .task-indicator .dot { width: 6px; height: 6px; border-radius: 50%; background: #4caf50; animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
     /* ── Embedded mode (OpenShift Console plugin) ── */
     body.embedded .app-header { display: none; }
     body.embedded .sidebar { width: 240px; min-width: 240px; }
@@ -379,10 +427,16 @@
 </head>
 <body>
 
+<!-- Toast container for notifications -->
+<div class="toast-container" id="toastContainer"></div>
+
 <!-- Header -->
 <div class="app-header">
   <h1>🤖 KubeCopilot</h1>
   <div style="display:flex;align-items:center;gap:0.6rem">
+    <span class="task-indicator" id="taskIndicator" title="Background tasks running">
+      <span class="dot"></span> <span id="taskCount">0</span> tasks
+    </span>
     <span class="session-badge" id="sessionBadge">No session</span>
     <button class="settings-btn" onclick="openSettings()" title="Settings">⚙️</button>
   </div>
@@ -777,6 +831,8 @@ async function selectSession(sid, preview) {
   renderChat();
   // Restore typing indicator if session is still in-flight
   if (runningItem && sending) showTyping();
+  // Start notification stream for this session
+  startNotificationStream(sid);
 }
 
 function newSession() {
@@ -785,6 +841,7 @@ function newSession() {
   clearChat();
   clearActivityLog();
   stopActivityStream();
+  stopNotificationStream();
   refreshSessionList();
 }
 
@@ -942,6 +999,7 @@ async function sendMessage() {
 
     // Switch activity stream from send-ref mode to session mode (keeps history visible)
     startActivityStream(d.session_id);
+    startNotificationStream(d.session_id);
     currentSendRef = '';
 
     appendBubble('assistant', d.response);
@@ -1521,6 +1579,82 @@ async function deleteProvider() {
     showToast('byokToast', 'Failed: ' + e.message, true);
   }
 }
+
+// =============================================================
+// Notification support
+// =============================================================
+let _notifEventSource = null;
+const _seenNotifications = new Set();
+
+function buildNotificationBubble(notif) {
+  const typeClass = notif.notification_type ? `notif-${esc(notif.notification_type)}` : '';
+  const icon = { info: 'ℹ️', success: '✅', warning: '⚠️', error: '❌' }[notif.notification_type] || 'ℹ️';
+  const titleHtml = notif.title ? `<div class="notif-title">${esc(notif.title)}</div>` : '';
+  const bodyHtml = mdToHtml(notif.message || '');
+  return `<div class="msg-row notification ${typeClass}"><div class="bubble">
+    <div class="notif-label">${icon} Background notification</div>
+    ${titleHtml}${bodyHtml}
+  </div></div>`;
+}
+
+function showNotificationToast(notif) {
+  const container = document.getElementById('toastContainer');
+  const typeClass = notif.notification_type ? `toast-${notif.notification_type}` : '';
+  const icon = { info: 'ℹ️', success: '✅', warning: '⚠️', error: '❌' }[notif.notification_type] || 'ℹ️';
+  const toast = document.createElement('div');
+  toast.className = `toast ${typeClass}`;
+  toast.innerHTML = `
+    <div class="toast-title">${icon} ${esc(notif.title || 'Notification')}</div>
+    <div class="toast-message">${esc((notif.message || '').substring(0, 120))}</div>`;
+  toast.onclick = () => {
+    toast.remove();
+    if (notif.session_id && notif.session_id !== currentSession) {
+      selectSession(notif.session_id, notif.title || 'Notification');
+    }
+  };
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 10000);
+}
+
+function startNotificationStream(sessionId) {
+  stopNotificationStream();
+  if (!currentAgent || !sessionId) return;
+  const url = `/notifications/stream?agent_ref=${enc(currentAgent)}&session_id=${enc(sessionId)}`;
+  _notifEventSource = new EventSource(url);
+  _notifEventSource.addEventListener('notification', (e) => {
+    try {
+      const notif = JSON.parse(e.data);
+      if (_seenNotifications.has(notif.name)) return;
+      _seenNotifications.add(notif.name);
+      // Add inline notification bubble
+      const el = document.getElementById('messages');
+      el.insertAdjacentHTML('beforeend', buildNotificationBubble(notif));
+      scrollBottom();
+      // Show toast
+      showNotificationToast(notif);
+    } catch (err) { console.error('notification parse error', err); }
+  });
+}
+
+function stopNotificationStream() {
+  if (_notifEventSource) { _notifEventSource.close(); _notifEventSource = null; }
+}
+
+async function pollBackgroundTasks() {
+  if (!currentAgent) return;
+  try {
+    const data = await apiFetch(`/tasks?agent_ref=${enc(currentAgent)}`);
+    const tasks = data.tasks || [];
+    const running = tasks.filter(t => t.status === 'running' || t.status === 'pending');
+    const indicator = document.getElementById('taskIndicator');
+    const countEl = document.getElementById('taskCount');
+    countEl.textContent = running.length;
+    indicator.classList.toggle('has-tasks', running.length > 0);
+  } catch (e) { /* ignore */ }
+}
+
+// Poll tasks every 15s
+setInterval(pollBackgroundTasks, 15000);
 
 // =============================================================
 init();

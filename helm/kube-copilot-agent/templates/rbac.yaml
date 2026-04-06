@@ -19,6 +19,7 @@ rules:
   - kubecopilotcancels
   - kubecopilotchunks
   - kubecopilotmessages
+  - kubecopilotnotifications
   - kubecopilotsends
   verbs: [create, delete, get, list, patch, update, watch]
 - apiGroups: [kubecopilot.io]
@@ -33,6 +34,7 @@ rules:
   - kubecopilotcancels/status
   - kubecopilotchunks/status
   - kubecopilotmessages/status
+  - kubecopilotnotifications/status
   - kubecopilotsends/status
   verbs: [get, patch, update]
 - apiGroups: [kubecopilot.io]

@@ -11,6 +11,7 @@ PLURAL_RESPONSES = "kubecopilotresponses"
 PLURAL_CHUNKS = "kubecopilotchunks"
 PLURAL_AGENTS = "kubecopilotagents"
 PLURAL_CANCELS = "kubecopilotcancels"
+PLURAL_NOTIFICATIONS = "kubecopilotnotifications"
 
 
 def _load_config():
@@ -130,7 +131,7 @@ def list_sessions(agent_ref: str, namespace: str) -> list[dict]:
 
 
 def delete_session(session_id: str, agent_ref: str, namespace: str) -> int:
-    """Delete all KubeCopilotResponse, KubeCopilotChunk and KubeCopilotSend objects for a session."""
+    """Delete all KubeCopilotResponse, KubeCopilotChunk, KubeCopilotNotification and KubeCopilotSend objects for a session."""
     deleted = 0
     label_selector = f"kubecopilot.io/agent-ref={agent_ref},kubecopilot.io/session-id={session_id}"
 
@@ -153,6 +154,18 @@ def delete_session(session_id: str, agent_ref: str, namespace: str) -> int:
         try:
             _api.delete_namespaced_custom_object(
                 GROUP, VERSION, namespace, PLURAL_CHUNKS, item["metadata"]["name"]
+            )
+            deleted += 1
+        except ApiException:
+            pass
+
+    # Delete KubeCopilotNotification objects (have session-id label)
+    for item in _api.list_namespaced_custom_object(
+        GROUP, VERSION, namespace, PLURAL_NOTIFICATIONS, label_selector=label_selector,
+    ).get("items", []):
+        try:
+            _api.delete_namespaced_custom_object(
+                GROUP, VERSION, namespace, PLURAL_NOTIFICATIONS, item["metadata"]["name"]
             )
             deleted += 1
         except ApiException:
@@ -263,6 +276,50 @@ def list_chunks_for_send(send_ref: str, agent_ref: str, namespace: str) -> list[
     ]
     chunks.sort(key=lambda c: c["sequence"])
     return chunks
+
+
+def list_notifications(agent_ref: str, session_id: str, namespace: str) -> list[dict]:
+    """Return KubeCopilotNotification objects for a session, ordered by creation time."""
+    label_selector = f"kubecopilot.io/agent-ref={agent_ref},kubecopilot.io/session-id={session_id}"
+    result = _api.list_namespaced_custom_object(
+        GROUP, VERSION, namespace, PLURAL_NOTIFICATIONS,
+        label_selector=label_selector,
+    )
+    items = sorted(
+        result.get("items", []),
+        key=lambda n: n["metadata"].get("creationTimestamp", ""),
+    )
+    notifications = []
+    for item in items:
+        spec = item.get("spec", {})
+        notifications.append({
+            "name": item["metadata"]["name"],
+            "session_id": spec.get("sessionID", ""),
+            "agent_ref": spec.get("agentRef", ""),
+            "message": spec.get("message", ""),
+            "notification_type": spec.get("notificationType", "info"),
+            "title": spec.get("title", ""),
+            "task_ref": spec.get("taskRef", ""),
+            "created_at": item["metadata"].get("creationTimestamp", ""),
+        })
+    return notifications
+
+
+def delete_notifications_for_session(session_id: str, agent_ref: str, namespace: str) -> int:
+    """Delete all KubeCopilotNotification objects for a session."""
+    deleted = 0
+    label_selector = f"kubecopilot.io/agent-ref={agent_ref},kubecopilot.io/session-id={session_id}"
+    for item in _api.list_namespaced_custom_object(
+        GROUP, VERSION, namespace, PLURAL_NOTIFICATIONS, label_selector=label_selector,
+    ).get("items", []):
+        try:
+            _api.delete_namespaced_custom_object(
+                GROUP, VERSION, namespace, PLURAL_NOTIFICATIONS, item["metadata"]["name"]
+            )
+            deleted += 1
+        except ApiException:
+            pass
+    return deleted
 
 
 def list_running_sessions(agent_ref: str, namespace: str) -> list[dict]:

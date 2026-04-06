@@ -1,0 +1,14 @@
+apiVersion: kubecopilot.io/v1
+kind: KubeCopilotNotification
+metadata:
+  labels:
+    kubecopilot.io/agent-ref: github-copilot-agent
+    kubecopilot.io/session-id: example-session-id
+  name: kubecopilotnotification-sample
+spec:
+  agentRef: github-copilot-agent
+  sessionID: example-session-id
+  message: "Node **worker-3** is now Ready! All conditions passed."
+  notificationType: success
+  title: "Node Ready"
+  taskRef: "task-abc123"

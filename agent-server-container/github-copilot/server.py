@@ -37,6 +37,7 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
+TASKS_FILE = COPILOT_HOME / "tasks.json"
 
 # ── Singleton CopilotClient ──────────────────────────────────────────────────
 _client: CopilotClient | None = None
@@ -484,6 +485,244 @@ async def _handle_async_item(item: dict):
             _queue.task_done()
 
 
+# ── Background Task Framework ────────────────────────────────────────────────
+
+_background_tasks: dict[str, dict] = {}
+_task_runner_started = False
+
+
+def _load_tasks() -> dict[str, dict]:
+    """Load persisted tasks from disk."""
+    if TASKS_FILE.exists():
+        try:
+            data = json.loads(TASKS_FILE.read_text())
+            if isinstance(data, dict):
+                return data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _save_tasks():
+    """Persist active tasks to disk for pod restart survival."""
+    serialisable = {}
+    for tid, task in _background_tasks.items():
+        serialisable[tid] = {k: v for k, v in task.items() if k != "_asyncio_task"}
+    try:
+        TASKS_FILE.write_text(json.dumps(serialisable, indent=2))
+    except OSError as e:
+        print(f"[tasks] Failed to persist tasks: {e}")
+
+
+async def _post_notification(
+    session_id: str, agent_ref: str, namespace: str,
+    message: str, notification_type: str = "info",
+    title: str = "", task_ref: str = "",
+):
+    """POST a one-way notification to the operator webhook."""
+    notification_url = WEBHOOK_URL.replace("/response", "/notification") if WEBHOOK_URL else ""
+    if not notification_url:
+        print(f"[tasks] No WEBHOOK_URL configured, cannot send notification")
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            await http.post(notification_url, json={
+                "session_id": session_id,
+                "agent_ref": agent_ref,
+                "namespace": namespace,
+                "message": message,
+                "notification_type": notification_type,
+                "title": title,
+                "task_ref": task_ref,
+            })
+    except Exception as e:
+        print(f"[tasks] Notification POST failed: {e}")
+
+
+async def _check_resource_condition(task: dict) -> bool:
+    """Check if a Kubernetes resource meets the desired condition.
+
+    Connects to the cluster API server using the in-cluster or local kubeconfig
+    and inspects status.conditions on the target resource.
+    """
+    config = task.get("config", {})
+    resource_type = config.get("resource_type", "nodes")
+    resource_name = config.get("resource_name", "")
+    condition_type = config.get("condition_type", "Ready")
+    condition_status = config.get("condition_status", "True")
+    api_version = config.get("api_version", "v1")
+    resource_namespace = config.get("resource_namespace", "")
+
+    # Build the API URL
+    kube_host = os.environ.get("KUBERNETES_SERVICE_HOST", "")
+    kube_port = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+
+    if not kube_host:
+        print(f"[tasks] Not running in cluster, skipping resource check")
+        return False
+
+    base_url = f"https://{kube_host}:{kube_port}"
+    token_path = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
+    ca_path = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+    if not token_path.exists():
+        print(f"[tasks] No service account token found")
+        return False
+
+    token = token_path.read_text().strip()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Build resource URL
+    if api_version == "v1":
+        api_prefix = f"{base_url}/api/v1"
+    else:
+        api_prefix = f"{base_url}/apis/{api_version}"
+
+    if resource_namespace:
+        url = f"{api_prefix}/namespaces/{resource_namespace}/{resource_type}/{resource_name}"
+    else:
+        url = f"{api_prefix}/{resource_type}/{resource_name}"
+
+    try:
+        async with httpx.AsyncClient(verify=ca_path, timeout=10.0) as http:
+            resp = await http.get(url, headers=headers)
+            if resp.status_code != 200:
+                print(f"[tasks] Resource check failed: HTTP {resp.status_code}")
+                return False
+
+            data = resp.json()
+            conditions = data.get("status", {}).get("conditions", [])
+            for cond in conditions:
+                if cond.get("type") == condition_type and cond.get("status") == condition_status:
+                    return True
+    except Exception as e:
+        print(f"[tasks] Resource check error: {e}")
+    return False
+
+
+async def _check_pod_phase(task: dict) -> bool:
+    """Check if a pod has reached the target phase."""
+    config = task.get("config", {})
+    pod_name = config.get("pod_name", "")
+    pod_namespace = config.get("pod_namespace", "default")
+    target_phase = config.get("target_phase", "Running")
+
+    kube_host = os.environ.get("KUBERNETES_SERVICE_HOST", "")
+    kube_port = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+
+    if not kube_host:
+        return False
+
+    base_url = f"https://{kube_host}:{kube_port}"
+    token_path = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
+    ca_path = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+    if not token_path.exists():
+        return False
+
+    token = token_path.read_text().strip()
+    headers = {"Authorization": f"Bearer {token}"}
+    url = f"{base_url}/api/v1/namespaces/{pod_namespace}/pods/{pod_name}"
+
+    try:
+        async with httpx.AsyncClient(verify=ca_path, timeout=10.0) as http:
+            resp = await http.get(url, headers=headers)
+            if resp.status_code != 200:
+                return False
+            data = resp.json()
+            phase = data.get("status", {}).get("phase", "")
+            return phase == target_phase
+    except Exception as e:
+        print(f"[tasks] Pod phase check error: {e}")
+    return False
+
+
+_TASK_CHECKERS = {
+    "monitor_resource": _check_resource_condition,
+    "monitor_pod_phase": _check_pod_phase,
+}
+
+
+async def _run_background_task(task_id: str):
+    """Background loop that periodically checks the task condition."""
+    task = _background_tasks.get(task_id)
+    if not task:
+        return
+
+    check_interval = task.get("check_interval", 30)
+    timeout = task.get("timeout", 3600)
+    task_type = task.get("task_type", "monitor_resource")
+    checker = _TASK_CHECKERS.get(task_type)
+
+    if not checker:
+        task["status"] = "failed"
+        task["error"] = f"Unknown task type: {task_type}"
+        _save_tasks()
+        return
+
+    elapsed = 0
+    task["status"] = "running"
+    _save_tasks()
+
+    while elapsed < timeout:
+        await asyncio.sleep(check_interval)
+        elapsed += check_interval
+
+        # Check if task was cancelled
+        if task_id not in _background_tasks:
+            return
+
+        try:
+            condition_met = await checker(task)
+        except Exception as e:
+            print(f"[tasks] Check failed for {task_id}: {e}")
+            condition_met = False
+
+        if condition_met:
+            task["status"] = "completed"
+            _save_tasks()
+
+            # Send notification
+            msg = task.get("notification_message", "Background task completed")
+            notif_type = task.get("notification_type", "success")
+            title = task.get("title", "Task Completed")
+            await _post_notification(
+                session_id=task.get("session_id", ""),
+                agent_ref=task.get("agent_ref", ""),
+                namespace=task.get("namespace", ""),
+                message=msg,
+                notification_type=notif_type,
+                title=title,
+                task_ref=task_id,
+            )
+            return
+
+    # Timeout reached
+    task["status"] = "timed_out"
+    _save_tasks()
+    await _post_notification(
+        session_id=task.get("session_id", ""),
+        agent_ref=task.get("agent_ref", ""),
+        namespace=task.get("namespace", ""),
+        message=f"Background monitoring task timed out after {timeout}s",
+        notification_type="warning",
+        title="Task Timed Out",
+        task_ref=task_id,
+    )
+
+
+def _restore_tasks():
+    """Restore persisted tasks on startup and re-launch runners."""
+    global _background_tasks
+    loaded = _load_tasks()
+    for tid, task in loaded.items():
+        if task.get("status") == "running":
+            _background_tasks[tid] = task
+            asyncio.create_task(_run_background_task(tid))
+        elif task.get("status") in ("completed", "timed_out", "failed"):
+            _background_tasks[tid] = task
+
+
 # ── FastAPI lifecycle ────────────────────────────────────────────────────────
 
 @app.on_event("startup")
@@ -506,6 +745,7 @@ async def startup_event():
             shutil.copy2(agent_src, INSTRUCTIONS_FILE)
 
     asyncio.create_task(_process_queue())
+    _restore_tasks()
 
 
 @app.on_event("shutdown")
@@ -628,6 +868,100 @@ async def chat(req: ChatRequest):
     save_session(session_id, history)
 
     return ChatResponse(response=response_text or "No response", session_id=session_id)
+
+
+# ── Background Task API ──────────────────────────────────────────────────────
+
+class MonitorTaskRequest(BaseModel):
+    session_id: str
+    agent_ref: str = ""
+    namespace: str = ""
+    task_type: str = "monitor_resource"
+    config: dict = {}
+    check_interval: int = 30
+    timeout: int = 3600
+    notification_message: str = "Background task completed"
+    notification_type: str = "success"
+    title: str = "Task Completed"
+
+
+@app.post("/tasks/monitor")
+async def create_monitor_task(req: MonitorTaskRequest):
+    """Register a background monitoring task."""
+    task_id = f"task-{uuid.uuid4().hex[:12]}"
+
+    if req.task_type not in _TASK_CHECKERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown task_type: {req.task_type}. Available: {list(_TASK_CHECKERS.keys())}",
+        )
+
+    task = {
+        "task_id": task_id,
+        "session_id": req.session_id,
+        "agent_ref": req.agent_ref,
+        "namespace": req.namespace,
+        "task_type": req.task_type,
+        "config": req.config,
+        "check_interval": max(req.check_interval, 5),
+        "timeout": min(req.timeout, 86400),
+        "notification_message": req.notification_message,
+        "notification_type": req.notification_type,
+        "title": req.title,
+        "status": "pending",
+    }
+
+    _background_tasks[task_id] = task
+    _save_tasks()
+    asyncio.create_task(_run_background_task(task_id))
+
+    return {"task_id": task_id, "status": "created"}
+
+
+@app.get("/tasks")
+def list_tasks():
+    """List all background tasks."""
+    tasks = []
+    for tid, task in _background_tasks.items():
+        tasks.append({
+            "task_id": tid,
+            "task_type": task.get("task_type", ""),
+            "status": task.get("status", ""),
+            "session_id": task.get("session_id", ""),
+            "title": task.get("title", ""),
+            "config": task.get("config", {}),
+        })
+    return {"tasks": tasks}
+
+
+@app.get("/tasks/{task_id}")
+def get_task(task_id: str):
+    """Get details of a specific background task."""
+    task = _background_tasks.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {
+        "task_id": task_id,
+        "task_type": task.get("task_type", ""),
+        "status": task.get("status", ""),
+        "session_id": task.get("session_id", ""),
+        "agent_ref": task.get("agent_ref", ""),
+        "title": task.get("title", ""),
+        "config": task.get("config", {}),
+        "check_interval": task.get("check_interval", 30),
+        "timeout": task.get("timeout", 3600),
+        "notification_message": task.get("notification_message", ""),
+    }
+
+
+@app.delete("/tasks/{task_id}")
+def delete_task(task_id: str):
+    """Cancel and remove a background task."""
+    task = _background_tasks.pop(task_id, None)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    _save_tasks()
+    return {"status": "deleted", "task_id": task_id}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -170,6 +170,55 @@ async def cancel(agent_ref: str = Query(...), send_ref: str = Query(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Notifications ────────────────────────────────────────────────────────────
+
+@app.get("/notifications")
+async def get_notifications(agent_ref: str = Query(...), session_id: str = Query(...)):
+    """Return all notifications for a session."""
+    return k8s_client.list_notifications(agent_ref, session_id, settings.namespace)
+
+
+@app.get("/notifications/stream")
+async def notifications_stream(
+    agent_ref: str = Query(...),
+    session_id: str = Query(...),
+):
+    """SSE stream of KubeCopilotNotification objects. Polls every 2s."""
+    async def generate():
+        seen_names: set[str] = set()
+
+        # Initial load
+        try:
+            for notif in k8s_client.list_notifications(agent_ref, session_id, settings.namespace):
+                seen_names.add(notif["name"])
+                yield {"event": "notification", "data": json.dumps(notif)}
+        except Exception as e:
+            yield {"event": "error", "data": json.dumps({"message": str(e)})}
+            return
+
+        # Keep streaming new notifications
+        while True:
+            await asyncio.sleep(2)
+            try:
+                for notif in k8s_client.list_notifications(agent_ref, session_id, settings.namespace):
+                    if notif["name"] not in seen_names:
+                        seen_names.add(notif["name"])
+                        yield {"event": "notification", "data": json.dumps(notif)}
+            except Exception:
+                pass
+
+    return EventSourceResponse(generate())
+
+
+@app.get("/tasks")
+async def get_tasks(agent_ref: str = Query(...)):
+    """Proxy /tasks from the agent server to get background tasks."""
+    try:
+        return await k8s_client.proxy_agent_get(agent_ref, settings.namespace, "/tasks")
+    except Exception as e:
+        return {"tasks": [], "error": str(e)}
+
+
 # ── Models proxy ─────────────────────────────────────────────────────────────
 
 @app.get("/models")
