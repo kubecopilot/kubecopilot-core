@@ -512,7 +512,7 @@ def _save_tasks():
         serialisable[tid] = {k: v for k, v in task.items() if k != "_asyncio_task"}
     try:
         fd, tmp_path = tempfile.mkstemp(
-            dir=str(TASKS_FILE.parent), suffix=".tmp",
+            dir=str(TASKS_FILE.parent), suffix=".tmp"
         )
         with os.fdopen(fd, "w") as f:
             json.dump(serialisable, f, indent=2)
