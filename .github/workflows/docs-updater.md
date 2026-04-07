@@ -83,14 +83,14 @@ Classify every changed file into **exactly one** of these documentation-impact c
 
 | Category | File patterns | Documentation target |
 |----------|--------------|---------------------|
-| **CRD / API types** | `api/v1/*_types.go` | README § CRDs, API reference |
-| **Controllers** | `internal/controller/*.go` | README § Architecture, request flow |
-| **Webhooks** | `internal/webhook/*.go` | README § Agent Server Container, API contract |
-| **Agent server** | `agent-server-container/**` | README § Agent Server Container, endpoints |
-| **Web UI** | `web-ui/**` | README § Features, Screenshots |
-| **Helm charts** | `helm/**` | README § Installation, Configuration |
-| **Build / dev tooling** | `Makefile`, `Containerfile` | CONTRIBUTING.md § Development Workflow |
-| **Operator bootstrap** | `cmd/**`, `config/**` | README § Quick Start, Deployment |
+| **CRD / API types** | `api/v1/*_types.go` | `docs/architecture.md` § CRDs table; `README.md` § Features (if new capability) |
+| **Controllers** | `internal/controller/*.go` | `docs/architecture.md` § request flow |
+| **Webhooks** | `internal/webhook/*.go` | `docs/agent-server.md` § API contract |
+| **Agent server** | `agent-server-container/**` | `docs/agent-server.md` § endpoints, SDK, webhook payloads |
+| **Web UI** | `web-ui/**` | `README.md` § Features, Screenshots |
+| **Helm charts** | `helm/**` | `docs/installation.md` § Helm values; `docs/configuration.md` |
+| **Build / dev tooling** | `Makefile`, `Containerfile` | `CONTRIBUTING.md` § Development; `docs/development.md` |
+| **Operator bootstrap** | `cmd/**`, `config/**` | `README.md` § Quick Start; `docs/installation.md` |
 | **Project metadata** | `PROJECT`, `go.mod` | None (skip) |
 
 If no category applies, output a `noop` — no documentation update is needed.
@@ -101,8 +101,14 @@ If no category applies, output a `noop` — no documentation update is needed.
 
 Read **only** the documentation files relevant to the impacted categories:
 
-- **`README.md`** — read if any category except pure build/dev tooling is impacted.
-- **`CONTRIBUTING.md`** — read if build/dev tooling, project structure, or contribution patterns changed.
+- **`README.md`** — always read to understand the project overview, features, and quick-start.
+- **`docs/architecture.md`** — read if CRD types, controllers, or architecture changed.
+- **`docs/installation.md`** — read if Helm charts, deployment, or operator bootstrap changed.
+- **`docs/usage.md`** — read if usage patterns, CRD examples, or Web UI behavior changed.
+- **`docs/configuration.md`** — read if configuration options, skills, instructions, BYOK, or runtime settings changed.
+- **`docs/agent-server.md`** — read if agent server, webhooks, API contract, or SDK integration changed.
+- **`docs/development.md`** — read if build tooling, dev workflow, or project structure changed.
+- **`CONTRIBUTING.md`** — read if build/dev tooling or contribution patterns changed.
 - **`AGENTS.md`** — read **only** if CRD types, controller design patterns, or kubebuilder markers changed.
 
 Use `cat` to read each file. Understand the existing structure, tone, and formatting conventions before making any edits.
@@ -124,14 +130,14 @@ Make precise, surgical edits using the `edit` tool. Follow these rules strictly:
 
 For each impacted category, update the appropriate section:
 
-- **New CRD kind**: Add a row to the CRD summary table and a new subsection with field descriptions and a sample YAML.
+- **New CRD kind**: Add a row to the CRD summary table in `docs/architecture.md` and a new subsection with field descriptions and a sample YAML.
 - **New CRD fields on existing kind**: Add the field to the relevant type documentation with description, type, and default.
-- **New API endpoint** (agent server or webhook): Add to the endpoint table or API contract section with method, path, request/response format.
-- **New Helm values**: Add to the relevant chart's configuration table with name, description, type, and default.
-- **New feature or capability**: Add a bullet to the Features section with a one-line description.
-- **New environment variable or config option**: Add to the Configuration section.
-- **Architecture change**: Update the flow diagram or sequence description.
-- **New make target or dev command**: Add to the Development section in CONTRIBUTING.md.
+- **New API endpoint** (agent server or webhook): Add to the endpoint table in `docs/agent-server.md` with method, path, request/response format.
+- **New Helm values**: Add to the relevant chart's configuration table in `docs/installation.md` or `docs/configuration.md` with name, description, type, and default.
+- **New feature or capability**: Add a bullet to the Features section in `README.md` with a one-line description.
+- **New environment variable or config option**: Add to `docs/configuration.md`.
+- **Architecture change**: Update the flow diagram in `docs/architecture.md`.
+- **New make target or dev command**: Add to `docs/development.md` or `CONTRIBUTING.md`.
 
 ### What NOT to Do
 - ❌ Do not rewrite sections unrelated to the merged PR.
