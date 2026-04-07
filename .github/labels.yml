@@ -1,0 +1,117 @@
+# Issue Types
+- name: bug
+  color: "d73a4a"
+  description: "Something isn't working"
+
+- name: enhancement
+  color: "a2eeef"
+  description: "New feature or request"
+
+- name: documentation
+  color: "0075ca"
+  description: "Improvements or additions to documentation"
+
+- name: question
+  color: "d876e3"
+  description: "Further information is requested"
+
+# Priority
+- name: "priority/critical"
+  color: "e11d48"
+  description: "Must be fixed ASAP"
+
+- name: "priority/high"
+  color: "f97316"
+  description: "Important — address in next release"
+
+- name: "priority/medium"
+  color: "eab308"
+  description: "Should be addressed eventually"
+
+- name: "priority/low"
+  color: "22c55e"
+  description: "Nice to have"
+
+# Component
+- name: "component/operator"
+  color: "1d4ed8"
+  description: "Go operator / controllers"
+
+- name: "component/agent-server"
+  color: "7c3aed"
+  description: "Agent server container (Python)"
+
+- name: "component/web-ui"
+  color: "db2777"
+  description: "Web UI frontend/backend"
+
+- name: "component/helm"
+  color: "0891b2"
+  description: "Helm charts"
+
+- name: "component/openshift-plugin"
+  color: "dc2626"
+  description: "OpenShift Console Plugin"
+
+- name: "component/cli"
+  color: "059669"
+  description: "CLI tool (planned)"
+
+# Status
+- name: stale
+  color: "ededed"
+  description: "No recent activity"
+
+- name: "good first issue"
+  color: "7057ff"
+  description: "Good for newcomers"
+
+- name: "help wanted"
+  color: "008672"
+  description: "Extra attention is needed"
+
+- name: pinned
+  color: "006b75"
+  description: "Exempt from stale bot"
+
+- name: roadmap
+  color: "5319e7"
+  description: "Part of the project roadmap"
+
+# Workflow
+- name: dependencies
+  color: "0366d6"
+  description: "Dependency updates"
+
+- name: automated
+  color: "bfdadc"
+  description: "Created by automation"
+
+- name: "breaking-change"
+  color: "b60205"
+  description: "Introduces a breaking change"
+
+# Language/ecosystem tags
+- name: go
+  color: "00ADD8"
+  description: "Go code changes"
+
+- name: python
+  color: "3776AB"
+  description: "Python code changes"
+
+- name: npm
+  color: "CB3837"
+  description: "npm/Node.js changes"
+
+- name: docker
+  color: "2496ED"
+  description: "Container image changes"
+
+- name: ci
+  color: "8b5cf6"
+  description: "CI/CD pipeline changes"
+
+- name: security
+  color: "ee0701"
+  description: "Security-related"

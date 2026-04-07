@@ -215,6 +215,22 @@ chore: rename docker targets to container in Makefile
 
 ---
 
+## Developer Certificate of Origin (DCO)
+
+By contributing to KubeCopilot, you agree to the [Developer Certificate of Origin (DCO)](https://developercertificate.org/). This is a lightweight way to certify that you wrote or have the right to submit the code you are contributing.
+
+All commits must be signed off using `git commit -s`:
+
+```sh
+git commit -s -m "feat(controller): add retry logic"
+```
+
+This adds a `Signed-off-by` trailer to your commit message with your name and email.
+
+> **Tip**: Configure git to always sign off: `git config --global format.signOff true`
+
+---
+
 ## Pull Request Guidelines
 
 1. **One concern per PR** — keep changes focused; avoid mixing unrelated fixes
