@@ -368,13 +368,20 @@
     .item-delete-btn:hover { color: #f07178; }
 
     /* ── Embedded mode (OpenShift Console plugin) ── */
+    body.embedded { height: 100vh; overflow: hidden; }
     body.embedded .app-header { display: none; }
-    body.embedded .sidebar { width: 240px; min-width: 240px; }
+    body.embedded .sidebar { width: 220px; min-width: 220px; }
     body.embedded .layout { height: 100vh; }
     body.embedded .settings-dialog { width: min(700px, 95vw); max-height: 90vh; }
     body.embedded .bubble { max-width: min(80%, 720px); }
     body.embedded .input-area { padding: 0.5rem 1rem; }
     body.embedded .messages { padding: 0.75rem 1rem; }
+    @media (max-width: 900px) {
+      body.embedded .sidebar { width: 180px; min-width: 180px; }
+    }
+    @media (max-width: 600px) {
+      body.embedded .sidebar { display: none; }
+    }
   </style>
 </head>
 <body>
