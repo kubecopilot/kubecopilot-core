@@ -1,12 +1,31 @@
-# kube-copilot-agent
+<div align="center">
+
+# ⎈ KubeCopilot
+
+**The pluggable, engine-agnostic AI agent platform for Kubernetes and OpenShift**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.20+-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io)
+[![OpenShift](https://img.shields.io/badge/OpenShift-4.x-EE0000?logo=redhatopenshift&logoColor=white)](https://www.redhat.com/en/technologies/cloud-computing/openshift)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)](https://python.org)
 
-**A Kubernetes operator that deploys AI agents inside your cluster, controlled entirely through CRDs.**
+</div>
 
-kube-copilot-agent provides a pluggable framework for running AI agents as Kubernetes-native workloads. The operator is engine-agnostic — it ships with a [GitHub Copilot SDK](docs/agent-server.md#github-copilot-sdk-default-engine) implementation out of the box and can be extended with other AI backends (e.g., [Claude Code](docs/agent-server.md#creating-a-new-agent-image-eg-claude-code)) by swapping the agent server container image. Users interact with agents by creating Kubernetes resources — no direct pod access required.
+KubeCopilot is a Kubernetes operator that deploys and manages AI agents inside your cluster, controlled entirely through CRDs. Unlike read-only AI assistants, KubeCopilot agents **can reason, plan, and execute** — running kubectl commands, managing resources, and automating complex operations autonomously.
+
+### Why KubeCopilot?
+
+| | KubeCopilot | Read-only Assistants | Other Frameworks |
+|---|---|---|---|
+| **Execute cluster actions** | ✅ Full agentic execution | ❌ Q&A only | ✅ Varies |
+| **Swap AI engine** | ✅ Change container image | ❌ Fixed | ❌ Fixed |
+| **Runtime configuration** | ✅ Skills, agents, models — no restart | ❌ | ⚠️ Partial |
+| **Real-time streaming** | ✅ CRD-based chunk streaming | ❌ | ❌ |
+| **Works on vanilla K8s + OpenShift** | ✅ Both | ❌ OpenShift only | ✅ K8s only |
+| **OpenShift Console Plugin** | ✅ Native embedding | ✅ Built-in | ❌ |
+
+The operator is **engine-agnostic** — it ships with a [GitHub Copilot SDK](docs/agent-server.md#github-copilot-sdk-default-engine) implementation out of the box and can be extended with other AI backends (e.g., [Claude Code](docs/agent-server.md#creating-a-new-agent-image-eg-claude-code)) by swapping the agent server container image.
 
 > [!WARNING]
 > **Disclaimer:** This project is experimental and has not been tested in a production or live environment. It may contain bugs, security vulnerabilities, or incomplete features. Running AI agents with cluster access carries inherent risks — agents may execute unintended commands or access sensitive resources. **Use at your own risk.** Review all manifests, RBAC rules, and agent instructions carefully before deploying in any environment you care about.
