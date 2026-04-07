@@ -69,12 +69,134 @@ spec:
                   KubeconfigSecretRef optionally references a Secret containing a kubeconfig
                   under key "config". When set, the secret is mounted at /copilot/.kube/config
                   and KUBECONFIG is set accordingly, giving kubectl/oc access to that cluster.
+                  This field is mutually exclusive with RBAC — when RBAC is configured the
+                  operator generates the kubeconfig automatically.
                 properties:
                   name:
                     description: Name of the secret.
                     type: string
                 required:
                 - name
+                type: object
+              rbac:
+                description: |-
+                  RBAC configures a ServiceAccount and role-based permissions for the agent.
+                  When set, the operator creates a ServiceAccount, a Role with the specified
+                  rules, a RoleBinding, and a kubeconfig Secret so the agent pod runs with
+                  least-privilege access scoped to these permissions.
+                  This field is mutually exclusive with KubeconfigSecretRef.
+                properties:
+                  clusterRules:
+                    description: |-
+                      ClusterRules define cluster-scoped permissions granted to the agent's
+                      ServiceAccount via a ClusterRole and ClusterRoleBinding.
+                    items:
+                      description: |-
+                        PolicyRule holds information that describes a policy rule, but does not contain information
+                        about who the rule applies to or which namespace the rule applies to.
+                      properties:
+                        apiGroups:
+                          description: |-
+                            APIGroups is the name of the APIGroup that contains the resources.  If multiple API groups are specified, any action requested against one of
+                            the enumerated resources in any API group will be allowed. "" represents the core API group and "*" represents all API groups.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        nonResourceURLs:
+                          description: |-
+                            NonResourceURLs is a set of partial urls that a user should have access to.  *s are allowed, but only as the full, final step in the path
+                            Since non-resource URLs are not namespaced, this field is only applicable for ClusterRoles referenced from a ClusterRoleBinding.
+                            Rules can either apply to API resources (such as "pods" or "secrets") or non-resource URL paths (such as "/api"),  but not both.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        resourceNames:
+                          description: ResourceNames is an optional white list of
+                            names that the rule applies to.  An empty set means that
+                            everything is allowed.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        resources:
+                          description: Resources is a list of resources this rule
+                            applies to. '*' represents all resources.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        verbs:
+                          description: Verbs is a list of Verbs that apply to ALL
+                            the ResourceKinds contained in this rule. '*' represents
+                            all verbs.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - verbs
+                      type: object
+                    type: array
+                  rules:
+                    description: |-
+                      Rules define namespace-scoped permissions granted to the agent's
+                      ServiceAccount via a Role and RoleBinding in the agent's namespace.
+                    items:
+                      description: |-
+                        PolicyRule holds information that describes a policy rule, but does not contain information
+                        about who the rule applies to or which namespace the rule applies to.
+                      properties:
+                        apiGroups:
+                          description: |-
+                            APIGroups is the name of the APIGroup that contains the resources.  If multiple API groups are specified, any action requested against one of
+                            the enumerated resources in any API group will be allowed. "" represents the core API group and "*" represents all API groups.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        nonResourceURLs:
+                          description: |-
+                            NonResourceURLs is a set of partial urls that a user should have access to.  *s are allowed, but only as the full, final step in the path
+                            Since non-resource URLs are not namespaced, this field is only applicable for ClusterRoles referenced from a ClusterRoleBinding.
+                            Rules can either apply to API resources (such as "pods" or "secrets") or non-resource URL paths (such as "/api"),  but not both.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        resourceNames:
+                          description: ResourceNames is an optional white list of
+                            names that the rule applies to.  An empty set means that
+                            everything is allowed.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        resources:
+                          description: Resources is a list of resources this rule
+                            applies to. '*' represents all resources.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        verbs:
+                          description: Verbs is a list of Verbs that apply to ALL
+                            the ResourceKinds contained in this rule. '*' represents
+                            all verbs.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - verbs
+                      type: object
+                    type: array
+                  serviceAccountName:
+                    description: |-
+                      ServiceAccountName is the name of the ServiceAccount to create for this
+                      agent. Defaults to "<agent-name>-sa" when omitted.
+                    type: string
                 type: object
               skillsConfigMap:
                 description: |-
@@ -90,6 +212,9 @@ spec:
             required:
             - githubTokenSecretRef
             type: object
+            x-kubernetes-validations:
+            - message: kubeconfigSecretRef and rbac are mutually exclusive
+              rule: '!(has(self.kubeconfigSecretRef) && has(self.rbac))'
           status:
             description: KubeCopilotAgentStatus defines the observed state of KubeCopilotAgent.
             properties:

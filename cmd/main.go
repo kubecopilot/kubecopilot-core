@@ -180,8 +180,10 @@ func main() {
 	}
 
 	if err := (&controller.KubeCopilotAgentReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		APIServerURL: mgr.GetConfig().Host,
+		CAData:       mgr.GetConfig().CAData,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "KubeCopilotAgent")
 		os.Exit(1)

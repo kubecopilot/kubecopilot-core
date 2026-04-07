@@ -8,7 +8,6 @@ rules:
   - ""
   resources:
   - configmaps
-  - secrets
   verbs:
   - get
   - list
@@ -28,6 +27,8 @@ rules:
   resources:
   - persistentvolumeclaims
   - pods
+  - secrets
+  - serviceaccounts
   - services
   verbs:
   - create
@@ -88,8 +89,11 @@ rules:
   - update
   - watch
 - apiGroups:
-  - networking.k8s.io
+  - rbac.authorization.k8s.io
   resources:
+  - clusterrolebindings
+  - clusterroles
+  - networking.k8s.io
   - networkpolicies
   verbs:
   - create
@@ -107,4 +111,6 @@ rules:
   - delete
   - get
   - list
+  - patch
+  - update
   - watch

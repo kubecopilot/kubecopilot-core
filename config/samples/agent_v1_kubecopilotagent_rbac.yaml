@@ -1,0 +1,36 @@
+# Example: KubeCopilotAgent with ServiceAccount-based RBAC permissions.
+# The operator creates a ServiceAccount, Role, RoleBinding, and a kubeconfig
+# Secret automatically so the agent pod runs with least-privilege access.
+apiVersion: kubecopilot.io/v1
+kind: KubeCopilotAgent
+metadata:
+  name: github-copilot-agent-rbac
+  namespace: kube-copilot-agent
+spec:
+  githubTokenSecretRef:
+    name: github-token
+  skillsConfigMap: copilot-skills
+  agentConfigMap: copilot-agent-md
+  storageSize: "1Gi"
+  image: quay.io/gfontana/kube-github-copilot-agent-server:v1.0
+
+  # RBAC-based access — no manual kubeconfig secret required.
+  rbac:
+    # Optional: override the auto-generated ServiceAccount name
+    # (defaults to "<agent-name>-sa").
+    serviceAccountName: copilot-agent-sa
+
+    # Namespace-scoped permissions (Role + RoleBinding in agent namespace).
+    rules:
+      - apiGroups: [""]
+        resources: ["pods", "services", "configmaps", "events"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["deployments", "replicasets", "statefulsets"]
+        verbs: ["get", "list", "watch"]
+
+    # Cluster-scoped permissions (ClusterRole + ClusterRoleBinding).
+    clusterRules:
+      - apiGroups: [""]
+        resources: ["namespaces", "nodes"]
+        verbs: ["get", "list"]

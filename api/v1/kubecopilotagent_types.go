@@ -17,6 +17,7 @@ limitations under the License.
 package v1
 
 import (
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -24,6 +25,7 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // KubeCopilotAgentSpec defines the desired state of KubeCopilotAgent
+// +kubebuilder:validation:XValidation:rule="!(has(self.kubeconfigSecretRef) && has(self.rbac))",message="kubeconfigSecretRef and rbac are mutually exclusive"
 type KubeCopilotAgentSpec struct {
 	// GitHubTokenSecretRef references a Secret containing key GITHUB_TOKEN.
 	// +required
@@ -52,8 +54,36 @@ type KubeCopilotAgentSpec struct {
 	// KubeconfigSecretRef optionally references a Secret containing a kubeconfig
 	// under key "config". When set, the secret is mounted at /copilot/.kube/config
 	// and KUBECONFIG is set accordingly, giving kubectl/oc access to that cluster.
+	// This field is mutually exclusive with RBAC — when RBAC is configured the
+	// operator generates the kubeconfig automatically.
 	// +optional
 	KubeconfigSecretRef *SecretReference `json:"kubeconfigSecretRef,omitempty"`
+
+	// RBAC configures a ServiceAccount and role-based permissions for the agent.
+	// When set, the operator creates a ServiceAccount, a Role with the specified
+	// rules, a RoleBinding, and a kubeconfig Secret so the agent pod runs with
+	// least-privilege access scoped to these permissions.
+	// This field is mutually exclusive with KubeconfigSecretRef.
+	// +optional
+	RBAC *AgentRBAC `json:"rbac,omitempty"`
+}
+
+// AgentRBAC defines the ServiceAccount and RBAC rules for an agent.
+type AgentRBAC struct {
+	// ServiceAccountName is the name of the ServiceAccount to create for this
+	// agent. Defaults to "<agent-name>-sa" when omitted.
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+
+	// Rules define namespace-scoped permissions granted to the agent's
+	// ServiceAccount via a Role and RoleBinding in the agent's namespace.
+	// +optional
+	Rules []rbacv1.PolicyRule `json:"rules,omitempty"`
+
+	// ClusterRules define cluster-scoped permissions granted to the agent's
+	// ServiceAccount via a ClusterRole and ClusterRoleBinding.
+	// +optional
+	ClusterRules []rbacv1.PolicyRule `json:"clusterRules,omitempty"`
 }
 
 // SecretReference is a reference to a secret by name.
