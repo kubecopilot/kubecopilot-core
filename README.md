@@ -16,16 +16,11 @@ KubeCopilot is a Kubernetes operator that deploys and manages AI agents inside y
 
 ### Why KubeCopilot?
 
-| | KubeCopilot | Read-only Assistants | Other Frameworks |
-|---|---|---|---|
-| **Execute cluster actions** | ✅ Full agentic execution | ❌ Q&A only | ✅ Varies |
-| **Swap AI engine** | ✅ Change container image | ❌ Fixed | ❌ Fixed |
-| **Runtime configuration** | ✅ Skills, agents, models — no restart | ❌ | ⚠️ Partial |
-| **Real-time streaming** | ✅ CRD-based chunk streaming | ❌ | ❌ |
-| **Works on vanilla K8s + OpenShift** | ✅ Both | ❌ OpenShift only | ✅ K8s only |
-| **OpenShift Console Plugin** | ✅ Native embedding | ✅ Built-in | ❌ |
+Most Kubernetes AI assistants are limited to answering questions — they can't actually *do* anything on your cluster. KubeCopilot is different. Agents execute real operations: running kubectl commands, creating resources, diagnosing issues, and automating multi-step workflows — all governed by Kubernetes RBAC and fully auditable through CRDs.
 
-The operator is **engine-agnostic** — it ships with a [GitHub Copilot SDK](docs/agent-server.md#github-copilot-sdk-default-engine) implementation out of the box and can be extended with other AI backends (e.g., [Claude Code](docs/agent-server.md#creating-a-new-agent-image-eg-claude-code)) by swapping the agent server container image.
+The operator is **engine-agnostic**: swap the AI backend by changing a container image in your CR — no code changes, no redeployment. Skills, instructions, custom agents, and even the LLM model can be reconfigured at runtime through the Web UI, without restarting a single pod. Real-time streaming via `KubeCopilotChunk` CRDs gives full visibility into agent reasoning, tool calls, and results as they happen.
+
+KubeCopilot runs on **both vanilla Kubernetes and OpenShift**, with a native OpenShift Console Plugin that embeds the chat UI directly into the web console.
 
 > [!WARNING]
 > **Disclaimer:** This project is experimental and has not been tested in a production or live environment. It may contain bugs, security vulnerabilities, or incomplete features. Running AI agents with cluster access carries inherent risks — agents may execute unintended commands or access sensitive resources. **Use at your own risk.** Review all manifests, RBAC rules, and agent instructions carefully before deploying in any environment you care about.
