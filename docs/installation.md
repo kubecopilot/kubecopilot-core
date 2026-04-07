@@ -248,8 +248,9 @@ After installation, refresh the OpenShift Console — a new **"KubeCopilot AI"**
 1. A `ConsolePlugin` CR registers the plugin with the OpenShift Console operator
 2. A post-install Job patches the Console operator config to enable the plugin
 3. The plugin page loads the existing Web UI inside an iframe with `?embedded=true`
-4. In embedded mode, the Web UI hides its own header and adjusts dimensions to fit the Console content area
-5. Theme sync: the plugin forwards OpenShift Console dark/light mode changes to the iframe via `postMessage`
+4. In embedded mode, the Web UI hides its own header and sizes itself to fill the Console content area; the plugin uses a `ResizeObserver` on the main content element for accurate layout when the sidebar is toggled, plus a `MutationObserver` for class/style changes
+5. **Responsive sidebar**: in embedded mode the sidebar width narrows to 180 px at ≤ 900 px viewport width and is hidden entirely at ≤ 600 px to maximise the chat area in small frames
+6. Theme sync: the plugin forwards OpenShift Console dark/light mode changes to the iframe via `postMessage`
 
 **Key Helm values:**
 
