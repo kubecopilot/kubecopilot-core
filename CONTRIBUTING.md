@@ -41,7 +41,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 ### Fork and clone
 
 ```sh
-git clone https://github.com/giofontana/kube-copilot-agent.git
+git clone https://github.com/kubecopilot/kubecopilot-core.git
 cd kube-copilot-agent
 ```
 

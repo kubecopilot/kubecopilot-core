@@ -1,8 +1,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: 📖 Documentation
-    url: https://github.com/giofontana/kube-copilot-agent/tree/main/docs
+    url: https://github.com/kubecopilot/kubecopilot-core/tree/main/docs
     about: Check the docs before opening an issue
   - name: 💬 Discussions
-    url: https://github.com/giofontana/kube-copilot-agent/discussions
+    url: https://github.com/kubecopilot/kubecopilot-core/discussions
     about: Ask questions and share ideas
