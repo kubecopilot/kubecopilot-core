@@ -1,5 +1,5 @@
 fastapi==0.135.3
-uvicorn[standard]==0.34.0
+uvicorn[standard]==0.44.0
 sse-starlette==2.2.1
 kubernetes==32.0.1
 pydantic-settings==2.8.1
