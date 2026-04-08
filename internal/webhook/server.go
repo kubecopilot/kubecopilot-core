@@ -34,6 +34,8 @@ import (
 
 var log = logf.Log.WithName("webhook-server")
 
+const defaultNamespace = "default"
+
 // +kubebuilder:rbac:groups=kubecopilot.io,resources=kubecopilotchunks,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kubecopilot.io,resources=kubecopilotchunks/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubecopilot.io,resources=kubecopilotresponses,verbs=get;list;watch;create;update;patch
@@ -106,7 +108,7 @@ func (s *Server) handleResponse(w http.ResponseWriter, r *http.Request) {
 
 	namespace := payload.Namespace
 	if namespace == "" {
-		namespace = "default"
+		namespace = defaultNamespace
 	}
 
 	// Build a unique name for the KubeCopilotResponse from the queue_id (truncated).
@@ -178,7 +180,7 @@ func (s *Server) handleChunk(w http.ResponseWriter, r *http.Request) {
 
 	namespace := payload.Namespace
 	if namespace == "" {
-		namespace = "default"
+		namespace = defaultNamespace
 	}
 
 	sendShort := payload.SendRef
@@ -248,7 +250,7 @@ func (s *Server) handleNotification(w http.ResponseWriter, r *http.Request) {
 
 	namespace := payload.Namespace
 	if namespace == "" {
-		namespace = "default"
+		namespace = defaultNamespace
 	}
 
 	notifType := payload.NotificationType
