@@ -58,6 +58,8 @@ KubeCopilot runs on **both vanilla Kubernetes and OpenShift**, with a native Ope
 - **Dynamic model selection** — switch models at runtime without redeploying
 - **BYOK (Bring Your Own Key)** — use an external OpenAI-compatible or Azure OpenAI provider, with API keys stored securely in Kubernetes Secrets
 - **Cancellation** of in-flight requests
+- **Asynchronous notifications** — agents push one-way notifications to user sessions via `KubeCopilotNotification` CRDs, with inline bubbles and toast popups in the UI
+- **Background task monitoring** — register long-running monitors (resource conditions, pod phases) that fire a notification when complete
 - **Web UI** with a settings panel for chatting with agents, browsing session history, and configuring agent behaviour at runtime
 - **OpenShift Console Plugin** — embed the UI directly inside the OpenShift Web Console
 - **Official website** at [kubecopilot.io](https://kubecopilot.io) — full feature overview, architecture diagram, quick-start guide, and CRD reference

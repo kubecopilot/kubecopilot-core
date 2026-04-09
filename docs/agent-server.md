@@ -33,6 +33,10 @@ The server **must** POST streaming chunks and final responses back to `$WEBHOOK_
 | `/config/skills` | GET | List all skills on the PVC |
 | `/config/skills/{name}` | GET/PUT/DELETE | Manage individual skills |
 | `/config/agents` | GET/PUT | Manage custom agent definitions on the PVC |
+| `/tasks/monitor` | POST | Register a background monitoring task (see [Background Task API](#background-task-api)) |
+| `/tasks` | GET | List all background tasks |
+| `/tasks/{id}` | GET | Get details of a specific background task |
+| `/tasks/{id}` | DELETE | Cancel and remove a background task |
 
 ## GitHub Copilot SDK (Default Engine)
 
@@ -108,6 +112,106 @@ Every agent server must POST these payloads to `$WEBHOOK_URL` (injected by the o
   "agent_ref": "..."
 }
 ```
+
+**Notification** (POST to `$WEBHOOK_URL` with `/response` replaced by `/notification`):
+
+```json
+{
+  "session_id": "<session-id>",
+  "agent_ref": "<agent-name>",
+  "namespace": "<namespace>",
+  "message": "Node worker-3 is now Ready!",
+  "notification_type": "success",
+  "title": "Background task completed",
+  "task_ref": "<task-id>"
+}
+```
+
+The operator webhook validates this payload, creates a `KubeCopilotNotification` CR, and the Web UI delivers it to the user via SSE. `notification_type` must be one of `info`, `success`, `warning`, or `error` (defaults to `info`). `title` and `task_ref` are optional.
+
+## Background Task API
+
+The GitHub Copilot agent server implements a background task framework for long-running operations. Tasks periodically check a Kubernetes resource condition or pod phase, and fire a notification to the user session when the condition is met (or when the task times out).
+
+Tasks are persisted to `$COPILOT_HOME/tasks.json` and automatically re-launched on pod restart.
+
+### POST /tasks/monitor
+
+Register a new background monitoring task.
+
+**Request body:**
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `session_id` | `string` | ✅ | — | Session to notify when complete |
+| `agent_ref` | `string` | ✅ | — | Name of the `KubeCopilotAgent` |
+| `namespace` | `string` | — | `""` | Kubernetes namespace of the target resource |
+| `task_type` | `string` | — | `monitor_resource` | Monitor type: `monitor_resource` or `monitor_pod_phase` |
+| `config` | `object` | — | `{}` | Monitor-specific config (see below) |
+| `check_interval` | `int` | — | `30` | Seconds between condition checks (minimum: 5) |
+| `timeout` | `int` | — | `3600` | Maximum seconds to wait before timing out (maximum: 86400) |
+| `notification_message` | `string` | — | `"Background task completed"` | Message sent in the notification |
+| `notification_type` | `string` | — | `success` | Notification severity: `info`, `success`, `warning`, `error` |
+| `title` | `string` | — | `"Task Completed"` | Toast popup title |
+
+**`monitor_resource` config fields:**
+
+| Field | Default | Description |
+|---|---|---|
+| `resource_type` | `nodes` | Kubernetes resource type (e.g. `pods`, `deployments`) |
+| `resource_name` | `""` | Name of the resource |
+| `condition_type` | `Ready` | Status condition type to check |
+| `condition_status` | `True` | Expected condition status |
+| `api_version` | `v1` | API version (e.g. `v1`, `apps/v1`) |
+| `resource_namespace` | `""` | Namespace of the resource (empty for cluster-scoped) |
+
+**`monitor_pod_phase` config fields:**
+
+| Field | Default | Description |
+|---|---|---|
+| `pod_name` | `""` | Name of the pod |
+| `pod_namespace` | `default` | Namespace of the pod |
+| `target_phase` | `Running` | Target pod phase (e.g. `Running`, `Succeeded`) |
+
+**Response:**
+
+```json
+{ "task_id": "task-abc123def456", "status": "created" }
+```
+
+**Example — monitor a node until Ready:**
+
+```bash
+curl -X POST http://<agent-svc>:8080/tasks/monitor \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "session_id": "abc",
+    "agent_ref": "my-agent",
+    "namespace": "default",
+    "task_type": "monitor_resource",
+    "config": {
+      "resource_type": "nodes",
+      "resource_name": "worker-3",
+      "condition_type": "Ready",
+      "condition_status": "True"
+    },
+    "check_interval": 30,
+    "timeout": 3600,
+    "notification_message": "Node worker-3 is now Ready!"
+  }'
+```
+
+### GET /tasks
+
+List all background tasks. Returns `{ "tasks": [...] }` where each item includes `task_id`, `task_type`, `status`, `session_id`, `title`, and `config`.
+
+### GET /tasks/{task_id}
+
+Get full details of a specific task, including `check_interval`, `timeout`, and `notification_message`.
+
+### DELETE /tasks/{task_id}
+
+Cancel and remove a task. Returns `{ "status": "deleted", "task_id": "..." }`.
 
 ## Environment Variables
 

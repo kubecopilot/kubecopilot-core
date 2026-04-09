@@ -32,6 +32,7 @@ flowchart TB
         chunk["KubeCopilotChunk"]
         resp["KubeCopilotResponse"]
         cancel["KubeCopilotCancel"]
+        notif["KubeCopilotNotification"]
     end
 
     secrets[("🔐 K8s Secrets<br/><sub>API tokens · BYOK API keys</sub>")]
@@ -55,6 +56,7 @@ flowchart TB
 
     webhook -- "creates" --> chunk
     webhook -- "creates" --> resp
+    webhook -- "creates" --> notif
 
     cancel -. "DELETE /cancel" .-> srv
 
@@ -110,4 +112,40 @@ sequenceDiagram
 | `KubeCopilotResponse` | Final response from the agent (written by operator webhook) |
 | `KubeCopilotChunk` | Real-time streaming events (thinking, tool calls, results) |
 | `KubeCopilotCancel` | Cancel an in-flight request |
+| `KubeCopilotNotification` | One-way notification pushed by the agent to a user session (e.g. background task completion) |
 | `KubeCopilotMessage` | Legacy single-turn message CRD |
+
+### KubeCopilotNotification
+
+`KubeCopilotNotification` CRs are created by the operator webhook when the agent server POSTs a notification (e.g. when a background monitoring task completes). The Web UI polls for new notifications via SSE and displays them as inline bubbles and toast popups.
+
+**Spec fields:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `agentRef` | `string` | ✅ | Name of the `KubeCopilotAgent` that produced this notification |
+| `sessionID` | `string` | ✅ | Conversation session this notification belongs to |
+| `message` | `string` | ✅ | Notification body (supports markdown) |
+| `notificationType` | `string` | — | Severity: `info` \| `success` \| `warning` \| `error` (default: `info`) |
+| `title` | `string` | — | Short summary shown in toast popups |
+| `taskRef` | `string` | — | ID of the background task that triggered this notification |
+
+**Example:**
+
+```yaml
+apiVersion: kubecopilot.io/v1
+kind: KubeCopilotNotification
+metadata:
+  name: notif-abc123
+  namespace: kube-copilot-agent
+  labels:
+    kubecopilot.io/agent-ref: my-agent
+    kubecopilot.io/session-id: session-xyz
+spec:
+  agentRef: my-agent
+  sessionID: session-xyz
+  message: "Node **worker-3** is now Ready!"
+  notificationType: success
+  title: "Background task completed"
+  taskRef: task-abc123def456
+```
