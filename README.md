@@ -9,6 +9,7 @@
 [![OpenShift](https://img.shields.io/badge/OpenShift-4.x-EE0000?logo=redhatopenshift&logoColor=white)](https://www.redhat.com/en/technologies/cloud-computing/openshift)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)](https://python.org)
+[![Website](https://img.shields.io/badge/Website-kubecopilot.io-brightgreen)](https://kubecopilot.io)
 
 </div>
 
@@ -59,6 +60,7 @@ KubeCopilot runs on **both vanilla Kubernetes and OpenShift**, with a native Ope
 - **Cancellation** of in-flight requests
 - **Web UI** with a settings panel for chatting with agents, browsing session history, and configuring agent behaviour at runtime
 - **OpenShift Console Plugin** — embed the UI directly inside the OpenShift Web Console
+- **Official website** at [kubecopilot.io](https://kubecopilot.io) — full feature overview, architecture diagram, quick-start guide, and CRD reference
 
 See [Agent Server Container](#agent-server-container) for the full pluggable architecture and how to add new engines.
 
