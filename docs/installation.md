@@ -68,6 +68,15 @@ kubectl create secret generic cluster-kubeconfig \
   -n kube-copilot-agent
 ```
 
+### ServiceAccount-Based Permissions
+
+Instead of supplying a kubeconfig secret manually, you can let the operator provision RBAC resources automatically. Set `spec.rbac` on the agent CR (or use the `rbac` Helm values) to create a dedicated ServiceAccount, Role/ClusterRole, bindings, and a generated kubeconfig Secret — all with the least-privilege rules you specify.
+
+See [Configuration — ServiceAccount-Based Permissions](configuration.md#serviceaccount-based-permissions) for the full reference and examples.
+
+> [!NOTE]
+> `spec.rbac` and `spec.kubeconfigSecretRef` are mutually exclusive; set only one.
+
 ## Step 3 — Deploy the GitHub Copilot Agent
 
 The `github-copilot-agent` chart creates the `KubeCopilotAgent` CR, a GitHub token Secret, and ConfigMaps for skills and `AGENT.md`. Default skills (monitor, deploy, troubleshoot) and a SysAdmin persona are included out of the box.
@@ -141,7 +150,8 @@ helm upgrade --install my-agent ./helm/github-copilot-agent \
 | `githubToken.secretKey` | `GITHUB_TOKEN` | Key inside the secret |
 | `image` | `""` | Override the agent container image |
 | `storageSize` | `1Gi` | PVC size for session history |
-| `kubeconfigSecretRef` | `""` | Existing Secret name with a kubeconfig |
+| `kubeconfigSecretRef` | `""` | Existing Secret name with a kubeconfig; mutually exclusive with `rbac` |
+| `rbac` | `{}` | ServiceAccount-based RBAC config (`serviceAccountName`, `rules`, `clusterRules`); mutually exclusive with `kubeconfigSecretRef` — see [ServiceAccount-Based Permissions](#serviceaccount-based-permissions) |
 | `createSkillsConfigMap` | `true` | Create a skills ConfigMap from `skillsContent` |
 | `skillsConfigMap` | `""` | Reference an existing skills ConfigMap |
 | `createAgentConfigMap` | `true` | Create an AGENT.md ConfigMap from `agentContent` |
@@ -248,8 +258,9 @@ After installation, refresh the OpenShift Console — a new **"KubeCopilot AI"**
 1. A `ConsolePlugin` CR registers the plugin with the OpenShift Console operator
 2. A post-install Job patches the Console operator config to enable the plugin
 3. The plugin page loads the existing Web UI inside an iframe with `?embedded=true`
-4. In embedded mode, the Web UI hides its own header and adjusts dimensions to fit the Console content area
-5. Theme sync: the plugin forwards OpenShift Console dark/light mode changes to the iframe via `postMessage`
+4. In embedded mode, the Web UI hides its own header and sizes itself to fill the Console content area; the plugin uses a `ResizeObserver` on the main content element for accurate layout when the sidebar is toggled, plus a `MutationObserver` for class/style changes
+5. **Responsive sidebar**: in embedded mode the sidebar width narrows to 180 px at ≤ 900 px viewport width and is hidden entirely at ≤ 600 px to maximise the chat area in small frames
+6. Theme sync: the plugin forwards OpenShift Console dark/light mode changes to the iframe via `postMessage`
 
 **Key Helm values:**
 

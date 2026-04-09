@@ -27,11 +27,11 @@ We will acknowledge your report within **48 hours** and aim to provide a fix or 
 
 KubeCopilot deploys AI agents with cluster access. Please review the following before deploying:
 
-- **RBAC**: Always use the least-privilege ServiceAccount for your agents. See [issue #4](https://github.com/giofontana/kube-copilot-agent/issues/4) for the RBAC feature.
+- **RBAC**: Always use the least-privilege ServiceAccount for your agents. See [issue #4](https://github.com/kubecopilot/kubecopilot-core/issues/4) for the RBAC feature.
 - **Network Policies**: Restrict agent pod network access to only what is needed.
 - **Secrets**: API keys are stored in Kubernetes Secrets. Ensure your cluster encrypts etcd at rest.
 - **Agent Instructions**: Review `AGENT.md` and skills carefully — they define what agents can do.
-- **Guardrails**: A safety policy CRD is planned ([issue #22](https://github.com/giofontana/kube-copilot-agent/issues/22)) to constrain agent actions.
+- **Guardrails**: A safety policy CRD is planned ([issue #22](https://github.com/kubecopilot/kubecopilot-core/issues/22)) to constrain agent actions.
 
 ## Disclosure Policy
 

@@ -107,6 +107,7 @@ sequenceDiagram
 | CRD | Purpose |
 |---|---|
 | `KubeCopilotAgent` | Declares an agent instance (image, credentials, skills, instructions) |
+| `KubeCopilotSession` | Creates an isolated tenant session: dedicated namespace, NetworkPolicy, and RBAC for namespace-per-tenant isolation |
 | `KubeCopilotSend` | Send a message to an agent; dispatched to the agent server |
 | `KubeCopilotResponse` | Final response from the agent (written by operator webhook) |
 | `KubeCopilotChunk` | Real-time streaming events (thinking, tool calls, results) |

@@ -9,6 +9,7 @@
 [![OpenShift](https://img.shields.io/badge/OpenShift-4.x-EE0000?logo=redhatopenshift&logoColor=white)](https://www.redhat.com/en/technologies/cloud-computing/openshift)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)](https://python.org)
+[![Website](https://img.shields.io/badge/Website-kubecopilot.io-brightgreen)](https://kubecopilot.io)
 
 </div>
 
@@ -35,6 +36,7 @@ KubeCopilot runs on **both vanilla Kubernetes and OpenShift**, with a native Ope
 - [Quick Start](#quick-start)
 - [Installation](#installation) · [full docs →](docs/installation.md)
 - [Usage](#usage) · [full docs →](docs/usage.md)
+- [Multi-Tenant Sessions](docs/multi-tenant.md)
 - [Configuration](#configuration) · [full docs →](docs/configuration.md)
 - [Agent Server Container](#agent-server-container) · [full docs →](docs/agent-server.md)
 - [Development](#development) · [full docs →](docs/development.md)
@@ -47,6 +49,7 @@ KubeCopilot runs on **both vanilla Kubernetes and OpenShift**, with a native Ope
 ## Features
 
 - **Pluggable agent engines** — swap the AI backend by changing the container image in your `KubeCopilotAgent` CR
+- **Multi-tenant session isolation** — `KubeCopilotSession` CRD creates a dedicated namespace per tenant with deny-all NetworkPolicy and scoped RBAC; see [Multi-Tenant Guide](docs/multi-tenant.md)
 - **Multi-turn conversations** with session continuity
 - **Real-time streaming** of agent activity via `KubeCopilotChunk` CRDs
 - **Custom skills** loaded from a ConfigMap or managed at runtime via the UI
@@ -59,6 +62,7 @@ KubeCopilot runs on **both vanilla Kubernetes and OpenShift**, with a native Ope
 - **Background task monitoring** — register long-running monitors (resource conditions, pod phases) that fire a notification when complete
 - **Web UI** with a settings panel for chatting with agents, browsing session history, and configuring agent behaviour at runtime
 - **OpenShift Console Plugin** — embed the UI directly inside the OpenShift Web Console
+- **Official website** at [kubecopilot.io](https://kubecopilot.io) — full feature overview, architecture diagram, quick-start guide, and CRD reference
 
 See [Agent Server Container](#agent-server-container) for the full pluggable architecture and how to add new engines.
 
@@ -112,7 +116,7 @@ See [Agent Server Container](#agent-server-container) for the full pluggable arc
 
 ## Architecture
 
-The operator reconciles CRDs (`KubeCopilotSend`, `KubeCopilotChunk`, `KubeCopilotResponse`, `KubeCopilotCancel`, `KubeCopilotNotification`) and delegates work to a pluggable agent server pod. The Web UI creates CRs and streams results back to the user via SSE. Background tasks in the agent server can push one-way notifications through the operator webhook, which creates `KubeCopilotNotification` CRs that the UI streams to the user in real time.
+The operator reconciles CRDs (`KubeCopilotSend`, `KubeCopilotChunk`, `KubeCopilotResponse`, `KubeCopilotCancel`, `KubeCopilotSession`) and delegates work to a pluggable agent server pod. The Web UI creates CRs and streams results back to the user via SSE. `KubeCopilotSession` provides namespace-per-tenant isolation for multi-tenant deployments.
 
 For detailed architecture diagrams and CRD descriptions, see **[Architecture](docs/architecture.md)**.
 
