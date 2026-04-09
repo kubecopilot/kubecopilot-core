@@ -35,6 +35,7 @@ KubeCopilot runs on **both vanilla Kubernetes and OpenShift**, with a native Ope
 - [Quick Start](#quick-start)
 - [Installation](#installation) · [full docs →](docs/installation.md)
 - [Usage](#usage) · [full docs →](docs/usage.md)
+- [Multi-Tenant Sessions](docs/multi-tenant.md)
 - [Configuration](#configuration) · [full docs →](docs/configuration.md)
 - [Agent Server Container](#agent-server-container) · [full docs →](docs/agent-server.md)
 - [Development](#development) · [full docs →](docs/development.md)
@@ -47,6 +48,7 @@ KubeCopilot runs on **both vanilla Kubernetes and OpenShift**, with a native Ope
 ## Features
 
 - **Pluggable agent engines** — swap the AI backend by changing the container image in your `KubeCopilotAgent` CR
+- **Multi-tenant session isolation** — `KubeCopilotSession` CRD creates a dedicated namespace per tenant with deny-all NetworkPolicy and scoped RBAC; see [Multi-Tenant Guide](docs/multi-tenant.md)
 - **Multi-turn conversations** with session continuity
 - **Real-time streaming** of agent activity via `KubeCopilotChunk` CRDs
 - **Custom skills** loaded from a ConfigMap or managed at runtime via the UI
@@ -110,7 +112,7 @@ See [Agent Server Container](#agent-server-container) for the full pluggable arc
 
 ## Architecture
 
-The operator reconciles CRDs (`KubeCopilotSend`, `KubeCopilotChunk`, `KubeCopilotResponse`, `KubeCopilotCancel`) and delegates work to a pluggable agent server pod. The Web UI creates CRs and streams results back to the user via SSE.
+The operator reconciles CRDs (`KubeCopilotSend`, `KubeCopilotChunk`, `KubeCopilotResponse`, `KubeCopilotCancel`, `KubeCopilotSession`) and delegates work to a pluggable agent server pod. The Web UI creates CRs and streams results back to the user via SSE. `KubeCopilotSession` provides namespace-per-tenant isolation for multi-tenant deployments.
 
 For detailed architecture diagrams and CRD descriptions, see **[Architecture](docs/architecture.md)**.
 
