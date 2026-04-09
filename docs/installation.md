@@ -34,6 +34,8 @@ helm upgrade --install kube-copilot-agent ./helm/kube-copilot-agent \
   --set createNamespace=false
 ```
 
+> **Note:** The namespace hook runs only on `helm install`, not on `helm upgrade`. This means upgrading the chart will never delete or recreate the operator namespace and its contents.
+
 **Key operator values:**
 
 | Value | Default | Description |
@@ -205,6 +207,8 @@ kubectl port-forward svc/kube-copilot-ui 8080:80 -n kube-copilot-agent
 | `route.enabled` | `false` | Create an OpenShift Route |
 | `route.timeout` | `360s` | HAProxy timeout for SSE streams |
 
+> **Security:** The Web UI pod runs with hardened security contexts: `runAsNonRoot: true`, `seccompProfile: RuntimeDefault`, `allowPrivilegeEscalation: false`, and all Linux capabilities dropped. No additional configuration is required.
+
 ## Step 5 — (Optional) Deploy the OpenShift Console Plugin
 
 If you're running on **OpenShift**, you can embed the KubeCopilot UI directly inside the OpenShift Web Console as a [dynamic plugin](https://github.com/openshift/console/tree/main/frontend/packages/console-dynamic-plugin-sdk).
@@ -253,6 +257,19 @@ helm upgrade --install kube-copilot-console-plugin ./helm/kube-copilot-console-p
 
 After installation, refresh the OpenShift Console — a new **"KubeCopilot AI"** nav item appears under **Home** in both the Administrator and Developer perspectives.
 
+If `plugin.jobs.patchConsoles.enabled` is `false`, enable the plugin manually:
+
+```sh
+oc patch consoles.operator.openshift.io cluster --type=json \
+  -p '[{"op": "add", "path": "/spec/plugins/-", "value": "kube-copilot-console-plugin"}]'
+```
+
+Verify the plugin is registered:
+
+```sh
+oc get consoleplugin kube-copilot-console-plugin
+```
+
 **How it works:**
 
 1. A `ConsolePlugin` CR registers the plugin with the OpenShift Console operator
@@ -270,6 +287,7 @@ After installation, refresh the OpenShift Console — a new **"KubeCopilot AI"**
 | `plugin.name` | `kube-copilot-console-plugin` | Name of the `ConsolePlugin` CR |
 | `plugin.replicas` | `2` | Number of plugin pod replicas |
 | `plugin.port` | `9443` | HTTPS port for nginx (auto-TLS via serving cert) |
+| `plugin.jobs.patchConsoles.enabled` | `true` | Auto-enable the plugin in the OpenShift Console via a post-install Job |
 | `webUI.serviceName` | `kube-copilot-ui` | Name of the KubeCopilot Web UI service |
 | `webUI.serviceNamespace` | *(release namespace)* | Namespace of the Web UI service |
 | `webUI.servicePort` | `8000` | Port of the Web UI service |
