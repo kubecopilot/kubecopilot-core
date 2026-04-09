@@ -32,6 +32,8 @@ import (
 	agentv1 "github.com/gfontana/kube-copilot-agent/api/v1"
 )
 
+const defaultNamespace = "default"
+
 var log = logf.Log.WithName("webhook-server")
 
 const defaultNamespace = "default"
