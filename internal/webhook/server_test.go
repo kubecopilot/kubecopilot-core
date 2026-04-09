@@ -42,7 +42,7 @@ func TestHandleNotification_ValidPayload(t *testing.T) {
 	payload := NotificationPayload{
 		SessionID:        "test-session-123",
 		AgentRef:         "test-agent",
-		Namespace:        "default",
+		Namespace:        defaultNamespace,
 		Message:          "Node worker-3 is now Ready!",
 		NotificationType: "success",
 		Title:            "Node Ready",
@@ -64,7 +64,7 @@ func TestHandleNotification_ValidPayload(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if resp["namespace"] != "default" {
+	if resp["namespace"] != defaultNamespace {
 		t.Errorf("expected namespace 'default', got %q", resp["namespace"])
 	}
 }
@@ -90,7 +90,7 @@ func TestHandleNotification_DefaultNamespace(t *testing.T) {
 
 	var resp map[string]string
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp["namespace"] != "default" {
+	if resp["namespace"] != defaultNamespace {
 		t.Errorf("expected default namespace, got %q", resp["namespace"])
 	}
 }
