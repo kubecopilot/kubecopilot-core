@@ -48,6 +48,7 @@ rules:
   - kubecopilotnotifications
   - kubecopilotsends
   - kubecopilotsessions
+  - kubecopilottoolservers
   verbs:
   - create
   - delete
@@ -63,6 +64,7 @@ rules:
   - kubecopilotmessages/finalizers
   - kubecopilotsends/finalizers
   - kubecopilotsessions/finalizers
+  - kubecopilottoolservers/finalizers
   verbs:
   - update
 - apiGroups:
@@ -75,6 +77,7 @@ rules:
   - kubecopilotnotifications/status
   - kubecopilotsends/status
   - kubecopilotsessions/status
+  - kubecopilottoolservers/status
   verbs:
   - get
   - patch

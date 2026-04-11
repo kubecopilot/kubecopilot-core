@@ -36,8 +36,6 @@ const defaultNamespace = "default"
 
 var log = logf.Log.WithName("webhook-server")
 
-const defaultNamespace = "default"
-
 // +kubebuilder:rbac:groups=kubecopilot.io,resources=kubecopilotchunks,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kubecopilot.io,resources=kubecopilotchunks/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubecopilot.io,resources=kubecopilotresponses,verbs=get;list;watch;create;update;patch

@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"time"
@@ -72,6 +73,7 @@ type KubeCopilotAgentReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kubecopilot.io,resources=kubecopilottoolservers,verbs=get;list;watch
 
 func (r *KubeCopilotAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -378,6 +380,20 @@ func (r *KubeCopilotAgentReconciler) ensurePod(ctx context.Context, agent *agent
 			Name:  "KUBECONFIG",
 			Value: "/copilot/.kube/config",
 		})
+	}
+
+	// Inject MCP server configurations when toolServers are specified.
+	if len(agent.Spec.ToolServers) > 0 {
+		mcpServers, err := r.buildMCPServersEnv(ctx, agent)
+		if err != nil {
+			return err
+		}
+		if mcpServers != "" {
+			envVars = append(envVars, corev1.EnvVar{
+				Name:  "MCP_SERVERS",
+				Value: mcpServers,
+			})
+		}
 	}
 
 	pod = &corev1.Pod{
@@ -707,6 +723,48 @@ func setOwnerRef(agent *agentv1.KubeCopilotAgent, obj metav1.Object) {
 			Controller: &isController,
 		},
 	})
+}
+
+// mcpServerConfig is the JSON structure for a single MCP server entry
+// passed via the MCP_SERVERS environment variable.
+type mcpServerConfig struct {
+	Name      string `json:"name"`
+	URL       string `json:"url"`
+	Transport string `json:"transport"`
+}
+
+// buildMCPServersEnv looks up KubeCopilotToolServer CRs referenced by the agent
+// and returns a JSON-encoded array of server configurations.
+func (r *KubeCopilotAgentReconciler) buildMCPServersEnv(ctx context.Context, agent *agentv1.KubeCopilotAgent) (string, error) {
+	var configs []mcpServerConfig
+	for _, name := range agent.Spec.ToolServers {
+		ts := &agentv1.KubeCopilotToolServer{}
+		key := types.NamespacedName{Name: name, Namespace: agent.Namespace}
+		if err := r.Get(ctx, key, ts); err != nil {
+			if errors.IsNotFound(err) {
+				logf.FromContext(ctx).Info("Referenced tool server not found, skipping", "toolServer", name)
+				continue
+			}
+			return "", err
+		}
+		transport := ts.Spec.Transport
+		if transport == "" {
+			transport = "sse"
+		}
+		configs = append(configs, mcpServerConfig{
+			Name:      ts.Name,
+			URL:       ts.Spec.URL,
+			Transport: transport,
+		})
+	}
+	if len(configs) == 0 {
+		return "", nil
+	}
+	data, err := json.Marshal(configs)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 // ---------------------------------------------------------------------------
