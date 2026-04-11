@@ -1,0 +1,38 @@
+# Observability Agent
+# Analyzes logs, inspects metrics endpoints, and investigates alerts.
+apiVersion: kubecopilot.io/v1
+kind: KubeCopilotAgent
+metadata:
+  name: observability-agent
+  namespace: kube-copilot-agent
+spec:
+  githubTokenSecretRef:
+    name: github-token
+  skillsConfigMap: observability-skills
+  agentConfigMap: observability-agent-md
+  storageSize: "1Gi"
+
+  rbac:
+    serviceAccountName: observability-agent-sa
+
+    # Namespace-scoped: read pods, logs, events, and monitoring resources
+    rules:
+      - apiGroups: [""]
+        resources: ["pods", "pods/log", "services", "configmaps", "events"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["deployments", "statefulsets", "daemonsets"]
+        verbs: ["get", "list", "watch"]
+
+    # Cluster-scoped: read nodes, namespaces, and monitoring CRDs
+    clusterRules:
+      - apiGroups: [""]
+        resources: ["nodes", "namespaces"]
+        verbs: ["get", "list"]
+      - apiGroups: [""]
+        resources: ["pods", "pods/log", "events"]
+        verbs: ["get", "list"]
+      - apiGroups: ["monitoring.coreos.com"]
+        resources: ["prometheuses", "alertmanagers", "servicemonitors",
+                     "podmonitors", "prometheusrules"]
+        verbs: ["get", "list"]

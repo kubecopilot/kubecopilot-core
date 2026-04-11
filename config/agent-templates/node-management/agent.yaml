@@ -1,0 +1,40 @@
+# Node Management Agent
+# Performs node health checks, drain/cordon operations, and capacity planning.
+apiVersion: kubecopilot.io/v1
+kind: KubeCopilotAgent
+metadata:
+  name: node-management-agent
+  namespace: kube-copilot-agent
+spec:
+  githubTokenSecretRef:
+    name: github-token
+  skillsConfigMap: node-management-skills
+  agentConfigMap: node-management-agent-md
+  storageSize: "1Gi"
+
+  rbac:
+    serviceAccountName: node-management-sa
+
+    # Namespace-scoped: read pods and events for drain analysis
+    rules:
+      - apiGroups: [""]
+        resources: ["pods", "events"]
+        verbs: ["get", "list", "watch"]
+
+    # Cluster-scoped: manage nodes and read cluster-wide pods
+    clusterRules:
+      - apiGroups: [""]
+        resources: ["nodes"]
+        verbs: ["get", "list", "watch", "update", "patch"]
+      - apiGroups: [""]
+        resources: ["namespaces"]
+        verbs: ["get", "list"]
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["get", "list"]
+      - apiGroups: [""]
+        resources: ["pods/eviction"]
+        verbs: ["create"]
+      - apiGroups: ["apps"]
+        resources: ["daemonsets"]
+        verbs: ["get", "list"]

@@ -1,0 +1,244 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: security-auditor-skills
+  namespace: kube-copilot-agent
+data:
+  rbac-audit.md: |
+    ---
+    name: rbac-audit
+    description: >
+      Audit RBAC configurations including Roles, ClusterRoles, bindings,
+      and ServiceAccount permissions. Identify overly permissive rules,
+      wildcard access, and privilege escalation paths.
+    ---
+
+    # RBAC Audit
+
+    Use this skill to audit RBAC configurations and identify security risks.
+
+    ## 1. Find Overly Permissive ClusterRoles
+
+    ```bash
+    # Find ClusterRoles with wildcard access
+    kubectl get clusterroles -o json | python3 -c "
+    import sys, json
+    data = json.load(sys.stdin)
+    print('CLUSTERROLE | APIGROUPS | RESOURCES | VERBS')
+    print('-' * 70)
+    for role in data['items']:
+        name = role['metadata']['name']
+        for rule in role.get('rules', []):
+            groups = rule.get('apiGroups', [])
+            resources = rule.get('resources', [])
+            verbs = rule.get('verbs', [])
+            if '*' in groups or '*' in resources or '*' in verbs:
+                print(f'{name} | {groups} | {resources} | {verbs}')
+    "
+    ```
+
+    ## 2. List Cluster-Admin Bindings
+
+    ```bash
+    # Find all subjects bound to cluster-admin
+    kubectl get clusterrolebindings -o json | python3 -c "
+    import sys, json
+    data = json.load(sys.stdin)
+    print('BINDING | SUBJECT-KIND | SUBJECT-NAME | NAMESPACE')
+    print('-' * 70)
+    for b in data['items']:
+        if b.get('roleRef', {}).get('name') == 'cluster-admin':
+            for s in b.get('subjects', []):
+                ns = s.get('namespace', 'cluster-scoped')
+                print(f'{b[\"metadata\"][\"name\"]} | {s[\"kind\"]} | {s[\"name\"]} | {ns}')
+    "
+    ```
+
+    ## 3. Audit ServiceAccount Permissions
+
+    ```bash
+    # Check what a service account can do
+    kubectl auth can-i --list \
+      --as=system:serviceaccount:<namespace>:<sa-name> \
+      -n <namespace>
+
+    # Find ServiceAccounts with auto-mounted tokens
+    kubectl get serviceaccounts -n <namespace> \
+      -o custom-columns=\
+    NAME:.metadata.name,\
+    AUTOMOUNT:.automountServiceAccountToken
+    ```
+
+    ## 4. Find Unused ServiceAccounts
+
+    ```bash
+    # List ServiceAccounts not referenced by any Pod
+    kubectl get sa -n <namespace> -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | while read sa; do
+      COUNT=$(kubectl get pods -n <namespace> \
+        --field-selector=spec.serviceAccountName="$sa" \
+        --no-headers 2>/dev/null | wc -l)
+      if [ "$COUNT" -eq 0 ] && [ "$sa" != "default" ]; then
+        echo "Unused: $sa"
+      fi
+    done
+    ```
+
+  pod-security.md: |
+    ---
+    name: pod-security
+    description: >
+      Audit pod security posture including privileged containers, host
+      namespace access, security contexts, and container image policies.
+    ---
+
+    # Pod Security Audit
+
+    Use this skill to audit pod security configurations.
+
+    ## 1. Find Privileged Containers
+
+    ```bash
+    # Find pods running as privileged
+    kubectl get pods -A -o json | python3 -c "
+    import sys, json
+    data = json.load(sys.stdin)
+    print('NAMESPACE | POD | CONTAINER | PRIVILEGED | RUN-AS-ROOT | HOST-NETWORK')
+    print('-' * 80)
+    for pod in data['items']:
+        ns = pod['metadata']['namespace']
+        name = pod['metadata']['name']
+        host_net = pod['spec'].get('hostNetwork', False)
+        for c in pod['spec'].get('containers', []):
+            sc = c.get('securityContext', {})
+            priv = sc.get('privileged', False)
+            run_root = sc.get('runAsNonRoot', None)
+            if priv or run_root is False or host_net:
+                print(f'{ns} | {name} | {c[\"name\"]} | {priv} | {run_root} | {host_net}')
+    "
+    ```
+
+    ## 2. Check Security Contexts
+
+    ```bash
+    # Find pods without securityContext
+    kubectl get pods -n <namespace> -o json | python3 -c "
+    import sys, json
+    data = json.load(sys.stdin)
+    for pod in data['items']:
+        name = pod['metadata']['name']
+        pod_sc = pod['spec'].get('securityContext', {})
+        for c in pod['spec'].get('containers', []):
+            c_sc = c.get('securityContext', {})
+            if not c_sc and not pod_sc:
+                print(f'No securityContext: {name}/{c[\"name\"]}')
+    "
+    ```
+
+    ## 3. Check Host Path Mounts
+
+    ```bash
+    # Find pods with hostPath volumes
+    kubectl get pods -A -o json | python3 -c "
+    import sys, json
+    data = json.load(sys.stdin)
+    print('NAMESPACE | POD | VOLUME | HOST-PATH')
+    print('-' * 70)
+    for pod in data['items']:
+        ns = pod['metadata']['namespace']
+        name = pod['metadata']['name']
+        for v in pod['spec'].get('volumes', []):
+            hp = v.get('hostPath')
+            if hp:
+                print(f'{ns} | {name} | {v[\"name\"]} | {hp[\"path\"]}')
+    "
+    ```
+
+    ## 4. Pod Security Standards (Kubernetes 1.23+)
+
+    ```bash
+    # Check namespace-level Pod Security labels
+    kubectl get namespaces -o custom-columns=\
+    NAMESPACE:.metadata.name,\
+    ENFORCE:.metadata.labels.pod-security\\.kubernetes\\.io/enforce,\
+    AUDIT:.metadata.labels.pod-security\\.kubernetes\\.io/audit,\
+    WARN:.metadata.labels.pod-security\\.kubernetes\\.io/warn
+
+    # OpenShift SCC assignments
+    oc get pods -A -o custom-columns=\
+    NAMESPACE:.metadata.namespace,\
+    POD:.metadata.name,\
+    SCC:.metadata.annotations.openshift\\.io/scc
+    ```
+
+  secret-audit.md: |
+    ---
+    name: secret-audit
+    description: >
+      Audit Kubernetes Secrets for hygiene issues including unused secrets,
+      default token mounts, and secret type distribution. Never exposes
+      secret values.
+    ---
+
+    # Secret Audit
+
+    Use this skill to audit secret hygiene. NEVER print secret data values —
+    only inspect metadata.
+
+    ## 1. Secret Inventory
+
+    ```bash
+    # List secrets by type across the cluster
+    kubectl get secrets -A -o custom-columns=\
+    NAMESPACE:.metadata.namespace,\
+    NAME:.metadata.name,\
+    TYPE:.type,\
+    AGE:.metadata.creationTimestamp \
+      --sort-by='.type'
+
+    # Count secrets by type
+    kubectl get secrets -A -o jsonpath='{range .items[*]}{.type}{"\n"}{end}' \
+      | sort | uniq -c | sort -rn
+    ```
+
+    ## 2. Find Unused Secrets
+
+    ```bash
+    # List Secrets not referenced by any Pod (in a namespace)
+    kubectl get secrets -n <namespace> -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | while read secret; do
+      # Check if referenced in pods as volume or env
+      REFS=$(kubectl get pods -n <namespace> -o json | python3 -c "
+    import sys, json
+    data = json.load(sys.stdin)
+    secret='$secret'
+    count = 0
+    for pod in data['items']:
+        for v in pod['spec'].get('volumes', []):
+            if v.get('secret', {}).get('secretName') == secret:
+                count += 1
+        for c in pod['spec'].get('containers', []):
+            for e in c.get('env', []):
+                if e.get('valueFrom', {}).get('secretKeyRef', {}).get('name') == secret:
+                    count += 1
+            for ef in c.get('envFrom', []):
+                if ef.get('secretRef', {}).get('name') == secret:
+                    count += 1
+    print(count)
+    " 2>/dev/null)
+      if [ "$REFS" = "0" ]; then
+        echo "Potentially unused: $secret"
+      fi
+    done
+    ```
+
+    ## 3. TLS Certificate Expiry
+
+    ```bash
+    # Check TLS secret certificate expiry dates
+    kubectl get secrets -n <namespace> --field-selector type=kubernetes.io/tls \
+      -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | while read secret; do
+      echo "--- $secret ---"
+      kubectl get secret "$secret" -n <namespace> \
+        -o jsonpath='{.data.tls\.crt}' | base64 -d 2>/dev/null | \
+        openssl x509 -noout -dates 2>/dev/null || echo "Could not parse certificate"
+    done
+    ```

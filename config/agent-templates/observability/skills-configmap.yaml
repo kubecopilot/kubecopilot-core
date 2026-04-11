@@ -1,0 +1,201 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-skills
+  namespace: kube-copilot-agent
+data:
+  log-analysis.md: |
+    ---
+    name: log-analysis
+    description: >
+      Analyze container logs for error patterns, stack traces, and anomalies.
+      Correlate log entries across pods and containers to identify root causes.
+    ---
+
+    # Log Analysis
+
+    Use this skill to analyze container logs and identify issues.
+
+    ## 1. Collect Logs
+
+    ```bash
+    # Recent logs from a pod (last 100 lines with timestamps)
+    kubectl logs <pod> -n <namespace> --tail=100 --timestamps
+
+    # Previous container logs (after crash)
+    kubectl logs <pod> -n <namespace> --previous --tail=100 --timestamps
+
+    # All containers in a pod
+    kubectl logs <pod> -n <namespace> --all-containers --tail=100 --timestamps
+
+    # Logs from all pods matching a label
+    kubectl logs -n <namespace> -l app=<label> --tail=50 --timestamps
+    ```
+
+    ## 2. Error Pattern Detection
+
+    ```bash
+    # Find error/warning lines in logs
+    kubectl logs <pod> -n <namespace> --tail=500 | \
+      grep -iE "error|exception|fatal|panic|warn|fail" | tail -30
+
+    # Count errors by pattern
+    kubectl logs <pod> -n <namespace> --tail=1000 | \
+      grep -iE "error|exception|fatal" | \
+      sed 's/[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}T[0-9:\.Z+]*//g' | \
+      sort | uniq -c | sort -rn | head -20
+
+    # Find OOM events in kernel logs (if node access is available)
+    kubectl get events -A --field-selector=reason=OOMKilling \
+      --sort-by='.lastTimestamp'
+    ```
+
+    ## 3. Cross-Pod Log Correlation
+
+    ```bash
+    # Logs from all pods in a deployment (last 5 minutes)
+    kubectl logs -n <namespace> deployment/<name> \
+      --all-containers --since=5m --timestamps
+
+    # Compare logs across replicas
+    for pod in $(kubectl get pods -n <namespace> -l app=<label> \
+      -o jsonpath='{.items[*].metadata.name}'); do
+      echo "=== $pod ==="
+      kubectl logs "$pod" -n <namespace> --tail=10 --timestamps
+    done
+    ```
+
+  metrics-inspect.md: |
+    ---
+    name: metrics-inspect
+    description: >
+      Inspect Kubernetes resource metrics, Prometheus configuration, and
+      ServiceMonitor/PodMonitor resources. Query metrics endpoints via
+      kubectl proxy.
+    ---
+
+    # Metrics Inspection
+
+    Use this skill to inspect metrics and monitoring configurations.
+
+    ## 1. Resource Utilization
+
+    ```bash
+    # Node resource usage
+    kubectl top nodes
+
+    # Pod resource usage (sorted by memory)
+    kubectl top pods -n <namespace> --sort-by=memory
+
+    # Pod resource usage cluster-wide (top consumers)
+    kubectl top pods -A --sort-by=memory | head -20
+    kubectl top pods -A --sort-by=cpu | head -20
+
+    # Compare usage vs requests/limits
+    kubectl get pods -n <namespace> -o json | python3 -c "
+    import sys, json
+    data = json.load(sys.stdin)
+    print(f'{\"POD\":<40} {\"CONTAINER\":<20} {\"CPU-REQ\":<10} {\"CPU-LIM\":<10} {\"MEM-REQ\":<10} {\"MEM-LIM\":<10}')
+    print('-' * 100)
+    for pod in data['items']:
+        name = pod['metadata']['name']
+        for c in pod['spec'].get('containers', []):
+            res = c.get('resources', {})
+            req = res.get('requests', {})
+            lim = res.get('limits', {})
+            print(f'{name:<40} {c[\"name\"]:<20} {req.get(\"cpu\",\"-\"):<10} {lim.get(\"cpu\",\"-\"):<10} {req.get(\"memory\",\"-\"):<10} {lim.get(\"memory\",\"-\"):<10}')
+    "
+    ```
+
+    ## 2. Prometheus Stack Health
+
+    ```bash
+    # Check Prometheus operator pods
+    kubectl get pods -A -l app.kubernetes.io/name=prometheus-operator
+    kubectl get pods -A -l app.kubernetes.io/name=prometheus
+
+    # OpenShift monitoring stack
+    oc get pods -n openshift-monitoring
+    oc get pods -n openshift-user-workload-monitoring
+
+    # List ServiceMonitors and PodMonitors
+    kubectl get servicemonitors -A 2>/dev/null || echo "ServiceMonitor CRD not installed"
+    kubectl get podmonitors -A 2>/dev/null || echo "PodMonitor CRD not installed"
+
+    # List PrometheusRules (alerting rules)
+    kubectl get prometheusrules -A 2>/dev/null || echo "PrometheusRule CRD not installed"
+    ```
+
+    ## 3. Alertmanager Status
+
+    ```bash
+    # Check Alertmanager pods
+    kubectl get pods -A -l app.kubernetes.io/name=alertmanager
+
+    # OpenShift: query active alerts
+    oc exec -n openshift-monitoring alertmanager-main-0 -- \
+      amtool alert query --alertmanager.url=http://localhost:9093 2>/dev/null || \
+      echo "Use the OCP console Monitoring > Alerting tab"
+    ```
+
+  event-analysis.md: |
+    ---
+    name: event-analysis
+    description: >
+      Analyze Kubernetes cluster events to identify patterns, warning
+      spikes, and correlate events with incidents.
+    ---
+
+    # Event Analysis
+
+    Use this skill to analyze cluster events and identify issues.
+
+    ## 1. Recent Warning Events
+
+    ```bash
+    # Warning events cluster-wide (last hour)
+    kubectl get events -A --field-selector=type=Warning \
+      --sort-by='.lastTimestamp' | tail -40
+
+    # Events in a specific namespace
+    kubectl get events -n <namespace> --sort-by='.lastTimestamp' | tail -30
+
+    # Events for a specific resource
+    kubectl get events -n <namespace> \
+      --field-selector=involvedObject.name=<resource-name> \
+      --sort-by='.lastTimestamp'
+    ```
+
+    ## 2. Event Pattern Analysis
+
+    ```bash
+    # Count events by reason (find the noisiest issues)
+    kubectl get events -A --field-selector=type=Warning \
+      -o jsonpath='{range .items[*]}{.reason}{"\n"}{end}' | \
+      sort | uniq -c | sort -rn | head -15
+
+    # Count events by involved object
+    kubectl get events -A --field-selector=type=Warning \
+      -o custom-columns=\
+    NAMESPACE:.involvedObject.namespace,\
+    KIND:.involvedObject.kind,\
+    NAME:.involvedObject.name,\
+    REASON:.reason,\
+    COUNT:.count,\
+    LAST-SEEN:.lastTimestamp \
+      --sort-by='.count' | tail -20
+    ```
+
+    ## 3. Pod Lifecycle Events
+
+    ```bash
+    # Track pod scheduling and startup events
+    kubectl get events -n <namespace> \
+      --field-selector=involvedObject.kind=Pod,involvedObject.name=<pod> \
+      --sort-by='.lastTimestamp'
+
+    # Find repeated crash events
+    kubectl get events -A \
+      --field-selector=reason=BackOff,type=Warning \
+      --sort-by='.lastTimestamp' | tail -20
+    ```

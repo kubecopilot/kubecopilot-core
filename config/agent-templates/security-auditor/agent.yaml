@@ -1,0 +1,43 @@
+# Security Auditor Agent
+# Reviews RBAC configurations, pod security compliance, and secret hygiene.
+apiVersion: kubecopilot.io/v1
+kind: KubeCopilotAgent
+metadata:
+  name: security-auditor-agent
+  namespace: kube-copilot-agent
+spec:
+  githubTokenSecretRef:
+    name: github-token
+  skillsConfigMap: security-auditor-skills
+  agentConfigMap: security-auditor-agent-md
+  storageSize: "1Gi"
+
+  rbac:
+    serviceAccountName: security-auditor-sa
+
+    # Namespace-scoped: read pods, service accounts, and secret metadata
+    rules:
+      - apiGroups: [""]
+        resources: ["pods", "serviceaccounts", "configmaps"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: [""]
+        resources: ["secrets"]
+        verbs: ["list"]
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        resources: ["roles", "rolebindings"]
+        verbs: ["get", "list", "watch"]
+
+    # Cluster-scoped: read RBAC and security-related resources
+    clusterRules:
+      - apiGroups: [""]
+        resources: ["namespaces", "nodes"]
+        verbs: ["get", "list"]
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        resources: ["clusterroles", "clusterrolebindings"]
+        verbs: ["get", "list"]
+      - apiGroups: ["policy"]
+        resources: ["podsecuritypolicies"]
+        verbs: ["get", "list"]
+      - apiGroups: [""]
+        resources: ["pods", "serviceaccounts"]
+        verbs: ["get", "list"]

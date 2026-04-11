@@ -1,0 +1,165 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: network-troubleshooter-skills
+  namespace: kube-copilot-agent
+data:
+  network-diagnosis.md: |
+    ---
+    name: network-diagnosis
+    description: >
+      Diagnose Kubernetes networking issues including DNS resolution failures,
+      Service connectivity problems, Endpoint mismatches, and Ingress/Route
+      misconfigurations.
+    ---
+
+    # Network Connectivity Diagnosis
+
+    Use this skill to systematically diagnose networking issues in the cluster.
+
+    ## 1. DNS Resolution
+
+    ```bash
+    # Test DNS resolution from inside the cluster
+    kubectl run dns-test --rm -it --restart=Never \
+      --image=busybox:1.36 -- nslookup <service>.<namespace>.svc.cluster.local
+
+    # Check CoreDNS pods
+    kubectl get pods -n kube-system -l k8s-app=kube-dns
+    kubectl logs -n kube-system -l k8s-app=kube-dns --tail=50
+
+    # OpenShift DNS operator
+    oc get pods -n openshift-dns
+    oc get dns.operator.openshift.io default -o yaml
+    ```
+
+    ## 2. Service and Endpoint Verification
+
+    ```bash
+    # Check Service exists and has correct selector
+    kubectl get svc <service> -n <namespace> -o wide
+    kubectl describe svc <service> -n <namespace>
+
+    # Verify Endpoints are populated (empty = selector mismatch)
+    kubectl get endpoints <service> -n <namespace>
+
+    # Compare Service selector with Pod labels
+    SVC_SELECTOR=$(kubectl get svc <service> -n <namespace> \
+      -o jsonpath='{.spec.selector}')
+    echo "Service selector: $SVC_SELECTOR"
+    kubectl get pods -n <namespace> --show-labels
+    ```
+
+    ## 3. Pod-to-Pod Connectivity
+
+    ```bash
+    # Get target Pod IP
+    kubectl get pod <pod> -n <namespace> \
+      -o jsonpath='{.status.podIP}'
+
+    # Test connectivity from a debug pod
+    kubectl run net-debug --rm -it --restart=Never \
+      --image=busybox:1.36 -- wget -qO- --timeout=5 \
+      http://<pod-ip>:<port>/
+
+    # Test Service connectivity
+    kubectl run svc-test --rm -it --restart=Never \
+      --image=curlimages/curl:latest -- \
+      curl -sf --max-time 5 \
+      http://<service>.<namespace>.svc.cluster.local:<port>/
+    ```
+
+    ## 4. Ingress and Route Troubleshooting
+
+    ```bash
+    # Kubernetes Ingress
+    kubectl get ingress -n <namespace>
+    kubectl describe ingress <name> -n <namespace>
+
+    # Check Ingress controller pods
+    kubectl get pods -n ingress-nginx
+    kubectl logs -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx \
+      --tail=50
+
+    # OpenShift Routes
+    oc get routes -n <namespace>
+    oc describe route <name> -n <namespace>
+    oc get pods -n openshift-ingress
+    ```
+
+  network-policy.md: |
+    ---
+    name: network-policy
+    description: >
+      Analyze NetworkPolicy rules, identify traffic blocks, verify policy
+      selectors, and test connectivity between pods governed by policies.
+    ---
+
+    # NetworkPolicy Analysis
+
+    Use this skill to analyze and troubleshoot Kubernetes NetworkPolicies.
+
+    ## 1. List NetworkPolicies
+
+    ```bash
+    # All policies in a namespace
+    kubectl get networkpolicies -n <namespace>
+
+    # Detailed view with selectors
+    kubectl get networkpolicies -n <namespace> -o wide
+
+    # All policies cluster-wide
+    kubectl get networkpolicies -A
+    ```
+
+    ## 2. Analyze Policy Rules
+
+    ```bash
+    # Describe a specific policy
+    kubectl describe networkpolicy <name> -n <namespace>
+
+    # View raw YAML for detailed analysis
+    kubectl get networkpolicy <name> -n <namespace> -o yaml
+    ```
+
+    ## 3. Find Policies Affecting a Pod
+
+    ```bash
+    # Get Pod labels
+    POD_LABELS=$(kubectl get pod <pod> -n <namespace> \
+      -o jsonpath='{.metadata.labels}')
+    echo "Pod labels: $POD_LABELS"
+
+    # List all NetworkPolicies and check if their podSelector matches
+    kubectl get networkpolicies -n <namespace> \
+      -o custom-columns=\
+    NAME:.metadata.name,\
+    POD-SELECTOR:.spec.podSelector.matchLabels
+    ```
+
+    ## 4. Verify Policy Effect
+
+    ```bash
+    # Test if a pod can reach a target (with policy applied)
+    kubectl run policy-test --rm -it --restart=Never \
+      --image=busybox:1.36 \
+      --labels="<labels-matching-source-pod>" \
+      -- wget -qO- --timeout=5 \
+      http://<target-service>.<namespace>.svc.cluster.local:<port>/
+
+    # Compare with a pod that has different labels (should be blocked)
+    kubectl run policy-test-blocked --rm -it --restart=Never \
+      --image=busybox:1.36 \
+      --labels="role=unauthorized" \
+      -- wget -qO- --timeout=5 \
+      http://<target-service>.<namespace>.svc.cluster.local:<port>/
+    ```
+
+    ## 5. Common NetworkPolicy Issues
+
+    | Symptom | Likely Cause | Diagnosis |
+    |---------|-------------|-----------|
+    | All traffic blocked | Default-deny policy with no allow rules | Check for `{}` podSelector with empty ingress/egress |
+    | Pod can't reach DNS | Egress policy blocks UDP 53 | Add egress rule for kube-dns on port 53 |
+    | Cross-namespace blocked | Missing `namespaceSelector` in ingress | Add namespaceSelector to allow source namespace |
+    | Policy not taking effect | Label mismatch on pods | Compare `podSelector` with actual pod labels |

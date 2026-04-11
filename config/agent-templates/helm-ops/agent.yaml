@@ -1,0 +1,38 @@
+# Helm Operations Agent
+# Inspects Helm releases, troubleshoots failed upgrades, and analyzes chart
+# configurations using kubectl (Helm stores releases as Secrets).
+apiVersion: kubecopilot.io/v1
+kind: KubeCopilotAgent
+metadata:
+  name: helm-ops-agent
+  namespace: kube-copilot-agent
+spec:
+  githubTokenSecretRef:
+    name: github-token
+  skillsConfigMap: helm-ops-skills
+  agentConfigMap: helm-ops-agent-md
+  storageSize: "1Gi"
+
+  rbac:
+    serviceAccountName: helm-ops-agent-sa
+
+    # Namespace-scoped: read Helm release Secrets and related workloads
+    rules:
+      - apiGroups: [""]
+        resources: ["secrets"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: [""]
+        resources: ["configmaps", "pods", "services"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["batch"]
+        resources: ["jobs", "cronjobs"]
+        verbs: ["get", "list", "watch"]
+
+    # Cluster-scoped: enumerate namespaces for cross-namespace release discovery
+    clusterRules:
+      - apiGroups: [""]
+        resources: ["namespaces"]
+        verbs: ["get", "list"]

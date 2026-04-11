@@ -1,0 +1,43 @@
+# Network Troubleshooter Agent
+# Diagnoses connectivity issues, DNS problems, and NetworkPolicy conflicts.
+apiVersion: kubecopilot.io/v1
+kind: KubeCopilotAgent
+metadata:
+  name: network-troubleshooter-agent
+  namespace: kube-copilot-agent
+spec:
+  githubTokenSecretRef:
+    name: github-token
+  skillsConfigMap: network-troubleshooter-skills
+  agentConfigMap: network-troubleshooter-agent-md
+  storageSize: "1Gi"
+
+  rbac:
+    serviceAccountName: network-troubleshooter-sa
+
+    # Namespace-scoped: read networking resources and create debug pods
+    rules:
+      - apiGroups: [""]
+        resources: ["pods", "services", "endpoints", "configmaps"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["create", "delete"]
+      - apiGroups: [""]
+        resources: ["pods/exec"]
+        verbs: ["create"]
+      - apiGroups: ["networking.k8s.io"]
+        resources: ["networkpolicies", "ingresses"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["route.openshift.io"]
+        resources: ["routes"]
+        verbs: ["get", "list", "watch"]
+
+    # Cluster-scoped: read nodes and namespaces for cross-namespace diagnosis
+    clusterRules:
+      - apiGroups: [""]
+        resources: ["nodes", "namespaces"]
+        verbs: ["get", "list"]
+      - apiGroups: [""]
+        resources: ["services", "endpoints"]
+        verbs: ["get", "list"]
