@@ -42,7 +42,7 @@ var installCmd = &cobra.Command{
 		if installVersion != "" && installVersion != defaultVersion {
 			url = fmt.Sprintf(manifestURLTmpl, installVersion)
 		}
-		fmt.Fprintf(os.Stdout, "Installing KubeCopilot operator from %s\n", url)
+		_, _ = fmt.Fprintf(os.Stdout, "Installing KubeCopilot operator from %s\n", url)
 		return runKubectl("apply", "-f", url)
 	},
 }
@@ -56,7 +56,7 @@ var uninstallCmd = &cobra.Command{
 		if installVersion != "" && installVersion != defaultVersion {
 			url = fmt.Sprintf(manifestURLTmpl, installVersion)
 		}
-		fmt.Fprintf(os.Stdout, "Uninstalling KubeCopilot operator using %s\n", url)
+		_, _ = fmt.Fprintf(os.Stdout, "Uninstalling KubeCopilot operator using %s\n", url)
 		return runKubectl("delete", "--ignore-not-found", "-f", url)
 	},
 }

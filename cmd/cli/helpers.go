@@ -18,6 +18,9 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"os"
+	"text/tabwriter"
 	"time"
 )
 
@@ -34,4 +37,48 @@ func formatAge(t time.Time) string {
 	default:
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
+}
+
+// tabWriterHelper wraps a *tabwriter.Writer and accumulates the first write
+// error so callers can check errors at the end via Flush() instead of after
+// each individual write. Only the first write error is preserved; subsequent
+// writes are silently skipped once an error has occurred. This pattern is
+// safe because tabwriter buffers all output and errors are propagated through
+// Flush() anyway.
+type tabWriterHelper struct {
+	tw  *tabwriter.Writer
+	err error
+}
+
+func newTabWriterHelper(w io.Writer) *tabWriterHelper {
+	return &tabWriterHelper{tw: tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)}
+}
+
+func newStdoutTabWriterHelper() *tabWriterHelper {
+	return newTabWriterHelper(os.Stdout)
+}
+
+// Printf formats and writes to the underlying tabwriter.
+// If a previous write already failed the call is a no-op.
+func (t *tabWriterHelper) Printf(format string, args ...any) {
+	if t.err != nil {
+		return
+	}
+	_, t.err = fmt.Fprintf(t.tw, format, args...)
+}
+
+// Println writes s followed by a newline to the underlying tabwriter.
+// If a previous write already failed the call is a no-op.
+func (t *tabWriterHelper) Println(s string) {
+	if t.err != nil {
+		return
+	}
+	_, t.err = fmt.Fprintln(t.tw, s)
+}
+
+func (t *tabWriterHelper) Flush() error {
+	if t.err != nil {
+		return t.err
+	}
+	return t.tw.Flush()
 }

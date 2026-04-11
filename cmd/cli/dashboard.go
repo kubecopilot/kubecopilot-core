@@ -118,7 +118,7 @@ var dashboardCmd = &cobra.Command{
 			close(stopChan)
 		}()
 
-		fmt.Fprintf(os.Stdout, "Forwarding %s/%s → http://localhost:%d\n", namespace, podName, dashboardPort)
+		_, _ = fmt.Fprintf(os.Stdout, "Forwarding %s/%s → http://localhost:%d\n", namespace, podName, dashboardPort)
 		return pf.ForwardPorts()
 	},
 }

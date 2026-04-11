@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,12 +47,12 @@ var agentListCmd = &cobra.Command{
 		if err := c.List(context.Background(), &list, client.InNamespace(namespace)); err != nil {
 			return fmt.Errorf("failed to list agents: %w", err)
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tPHASE\tAGENT ID\tAGE")
+		w := newStdoutTabWriterHelper()
+		w.Println("NAME\tPHASE\tAGENT ID\tAGE")
 		for i := range list.Items {
 			a := &list.Items[i]
 			age := formatAge(a.CreationTimestamp.Time)
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", a.Name, a.Status.Phase, a.Status.AgentID, age)
+			w.Printf("%s\t%s\t%s\t%s\n", a.Name, a.Status.Phase, a.Status.AgentID, age)
 		}
 		return w.Flush()
 	},
@@ -75,30 +74,30 @@ var agentGetCmd = &cobra.Command{
 		if err := c.Get(context.Background(), key, &agent); err != nil {
 			return fmt.Errorf("failed to get agent %q: %w", args[0], err)
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintf(w, "Name:\t%s\n", agent.Name)
-		fmt.Fprintf(w, "Namespace:\t%s\n", agent.Namespace)
-		fmt.Fprintf(w, "Phase:\t%s\n", agent.Status.Phase)
-		fmt.Fprintf(w, "Agent ID:\t%s\n", agent.Status.AgentID)
-		fmt.Fprintf(w, "Token Secret:\t%s\n", agent.Spec.GitHubTokenSecretRef.Name)
+		w := newStdoutTabWriterHelper()
+		w.Printf("Name:\t%s\n", agent.Name)
+		w.Printf("Namespace:\t%s\n", agent.Namespace)
+		w.Printf("Phase:\t%s\n", agent.Status.Phase)
+		w.Printf("Agent ID:\t%s\n", agent.Status.AgentID)
+		w.Printf("Token Secret:\t%s\n", agent.Spec.GitHubTokenSecretRef.Name)
 		if agent.Spec.Image != "" {
-			fmt.Fprintf(w, "Image:\t%s\n", agent.Spec.Image)
+			w.Printf("Image:\t%s\n", agent.Spec.Image)
 		}
-		fmt.Fprintf(w, "Storage Size:\t%s\n", agent.Spec.StorageSize)
+		w.Printf("Storage Size:\t%s\n", agent.Spec.StorageSize)
 		if agent.Spec.SkillsConfigMap != "" {
-			fmt.Fprintf(w, "Skills ConfigMap:\t%s\n", agent.Spec.SkillsConfigMap)
+			w.Printf("Skills ConfigMap:\t%s\n", agent.Spec.SkillsConfigMap)
 		}
 		if agent.Spec.AgentConfigMap != "" {
-			fmt.Fprintf(w, "Agent ConfigMap:\t%s\n", agent.Spec.AgentConfigMap)
+			w.Printf("Agent ConfigMap:\t%s\n", agent.Spec.AgentConfigMap)
 		}
 		if agent.Status.ServiceName != "" {
-			fmt.Fprintf(w, "Service:\t%s\n", agent.Status.ServiceName)
+			w.Printf("Service:\t%s\n", agent.Status.ServiceName)
 		}
 		if len(agent.Status.Conditions) > 0 {
-			fmt.Fprintln(w, "\nConditions:")
-			fmt.Fprintln(w, "  TYPE\tSTATUS\tREASON\tMESSAGE")
+			w.Println("\nConditions:")
+			w.Println("  TYPE\tSTATUS\tREASON\tMESSAGE")
 			for _, cond := range agent.Status.Conditions {
-				fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n",
+				w.Printf("  %s\t%s\t%s\t%s\n",
 					cond.Type, cond.Status, cond.Reason, cond.Message)
 			}
 		}
@@ -149,7 +148,7 @@ var agentCreateCmd = &cobra.Command{
 		if err := c.Create(context.Background(), agent); err != nil {
 			return fmt.Errorf("failed to create agent: %w", err)
 		}
-		fmt.Fprintf(os.Stdout, "agent/%s created\n", args[0])
+		_, _ = fmt.Fprintf(os.Stdout, "agent/%s created\n", args[0])
 		return nil
 	},
 }
@@ -174,13 +173,14 @@ var agentDeleteCmd = &cobra.Command{
 		if err := c.Delete(context.Background(), agent); err != nil {
 			return fmt.Errorf("failed to delete agent %q: %w", args[0], err)
 		}
-		fmt.Fprintf(os.Stdout, "agent/%s deleted\n", args[0])
+		_, _ = fmt.Fprintf(os.Stdout, "agent/%s deleted\n", args[0])
 		return nil
 	},
 }
 
 func init() {
-	agentCreateCmd.Flags().StringVar(&agentTokenSecret, "token-secret", "", "name of the Secret containing GITHUB_TOKEN (required)")
+	agentCreateCmd.Flags().StringVar(&agentTokenSecret, "token-secret", "",
+		"name of the Secret containing GITHUB_TOKEN (required)")
 	agentCreateCmd.Flags().StringVar(&agentImage, "image", "", "override the default agent container image")
 	agentCreateCmd.Flags().StringVar(&agentStorageSize, "storage-size", "", "PVC size for session state (default: 1Gi)")
 	agentCreateCmd.Flags().StringVar(&agentSkillsCM, "skills-configmap", "", "name of the skills ConfigMap")

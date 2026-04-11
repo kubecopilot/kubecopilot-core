@@ -19,8 +19,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -47,15 +45,15 @@ var sessionListCmd = &cobra.Command{
 		if err := c.List(context.Background(), &list, client.InNamespace(namespace)); err != nil {
 			return fmt.Errorf("failed to list sessions: %w", err)
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tAGENT\tTENANT\tPHASE\tNAMESPACE\tAGE")
+		w := newStdoutTabWriterHelper()
+		w.Println("NAME\tAGENT\tTENANT\tPHASE\tNAMESPACE\tAGE")
 		for i := range list.Items {
 			s := &list.Items[i]
 			if sessionAgentFilter != "" && s.Spec.AgentRef != sessionAgentFilter {
 				continue
 			}
 			age := formatAge(s.CreationTimestamp.Time)
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			w.Printf("%s\t%s\t%s\t%s\t%s\t%s\n",
 				s.Name, s.Spec.AgentRef, s.Spec.TenantID,
 				s.Status.Phase, s.Status.Namespace, age)
 		}

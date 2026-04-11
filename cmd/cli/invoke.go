@@ -135,17 +135,17 @@ func streamChunks(ctx context.Context, c client.Client, sendName string) error {
 func printChunk(chunk agentv1.KubeCopilotChunk) {
 	switch chunk.Spec.ChunkType {
 	case "thinking":
-		fmt.Fprintf(os.Stderr, "[thinking] %s\n", chunk.Spec.Content)
+		_, _ = fmt.Fprintf(os.Stderr, "[thinking] %s\n", chunk.Spec.Content)
 	case "tool_call":
-		fmt.Fprintf(os.Stderr, "[tool] %s\n", chunk.Spec.Content)
+		_, _ = fmt.Fprintf(os.Stderr, "[tool] %s\n", chunk.Spec.Content)
 	case "tool_result":
-		fmt.Fprintf(os.Stderr, "[result] %s\n", chunk.Spec.Content)
+		_, _ = fmt.Fprintf(os.Stderr, "[result] %s\n", chunk.Spec.Content)
 	case "error":
-		fmt.Fprintf(os.Stderr, "[error] %s\n", chunk.Spec.Content)
+		_, _ = fmt.Fprintf(os.Stderr, "[error] %s\n", chunk.Spec.Content)
 	case "info":
-		fmt.Fprintf(os.Stderr, "[info] %s\n", chunk.Spec.Content)
+		_, _ = fmt.Fprintf(os.Stderr, "[info] %s\n", chunk.Spec.Content)
 	default:
-		fmt.Fprint(os.Stdout, chunk.Spec.Content)
+		_, _ = fmt.Fprint(os.Stdout, chunk.Spec.Content)
 	}
 }
 
