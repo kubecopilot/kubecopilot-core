@@ -10,6 +10,7 @@
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)](https://python.org)
 [![Website](https://img.shields.io/badge/Website-kubecopilot.io-brightgreen)](https://kubecopilot.io)
+[![Docs](https://img.shields.io/badge/Docs-docs.kubecopilot.io-blue)](https://docs.kubecopilot.io)
 
 </div>
 
@@ -32,14 +33,14 @@ KubeCopilot runs on **both vanilla Kubernetes and OpenShift**, with a native Ope
 
 - [Features](#features)
 - [Screenshots](#screenshots)
-- [Architecture](#architecture) · [full docs →](docs/architecture.md)
+- [Architecture](#architecture) · [full docs →](https://docs.kubecopilot.io/reference/architecture/)
 - [Quick Start](#quick-start)
-- [Installation](#installation) · [full docs →](docs/installation.md)
-- [Usage](#usage) · [full docs →](docs/usage.md)
-- [Multi-Tenant Sessions](docs/multi-tenant.md)
-- [Configuration](#configuration) · [full docs →](docs/configuration.md)
-- [Agent Server Container](#agent-server-container) · [full docs →](docs/agent-server.md)
-- [Development](#development) · [full docs →](docs/development.md)
+- [Installation](#installation) · [full docs →](https://docs.kubecopilot.io/getting-started/installation/)
+- [Usage](#usage) · [full docs →](https://docs.kubecopilot.io/getting-started/usage/)
+- [Multi-Tenant Sessions](https://docs.kubecopilot.io/guides/multi-tenant/)
+- [Configuration](#configuration) · [full docs →](https://docs.kubecopilot.io/getting-started/configuration/)
+- [Agent Server Container](#agent-server-container) · [full docs →](https://docs.kubecopilot.io/reference/agent-server/)
+- [Development](#development) · [full docs →](https://docs.kubecopilot.io/reference/development/)
 - [Contributing](#contributing)
 - [Uninstall](#uninstall)
 - [License](#license)
@@ -49,7 +50,7 @@ KubeCopilot runs on **both vanilla Kubernetes and OpenShift**, with a native Ope
 ## Features
 
 - **Pluggable agent engines** — swap the AI backend by changing the container image in your `KubeCopilotAgent` CR
-- **Multi-tenant session isolation** — `KubeCopilotSession` CRD creates a dedicated namespace per tenant with deny-all NetworkPolicy and scoped RBAC; see [Multi-Tenant Guide](docs/multi-tenant.md)
+- **Multi-tenant session isolation** — `KubeCopilotSession` CRD creates a dedicated namespace per tenant with deny-all NetworkPolicy and scoped RBAC; see [Multi-Tenant Guide](https://docs.kubecopilot.io/guides/multi-tenant/)
 - **Multi-turn conversations** with session continuity
 - **Real-time streaming** of agent activity via `KubeCopilotChunk` CRDs
 - **Custom skills** loaded from a ConfigMap or managed at runtime via the UI
@@ -118,7 +119,7 @@ See [Agent Server Container](#agent-server-container) for the full pluggable arc
 
 The operator reconciles CRDs (`KubeCopilotSend`, `KubeCopilotChunk`, `KubeCopilotResponse`, `KubeCopilotCancel`, `KubeCopilotSession`) and delegates work to a pluggable agent server pod. The Web UI creates CRs and streams results back to the user via SSE. `KubeCopilotSession` provides namespace-per-tenant isolation for multi-tenant deployments.
 
-For detailed architecture diagrams and CRD descriptions, see **[Architecture](docs/architecture.md)**.
+For detailed architecture diagrams and CRD descriptions, see **[Architecture](https://docs.kubecopilot.io/reference/architecture/)**.
 
 ---
 
@@ -333,7 +334,7 @@ helm upgrade --install kube-copilot-ui ./helm/kube-copilot-ui \
 
 Then get the URL:
 
-For prerequisites, Helm values, OpenShift Console Plugin setup, and step-by-step instructions, see the **[Installation Guide](docs/installation.md)**.
+For prerequisites, Helm values, OpenShift Console Plugin setup, and step-by-step instructions, see the **[Installation Guide](https://docs.kubecopilot.io/getting-started/installation/)**.
 
 ---
 
@@ -341,7 +342,7 @@ For prerequisites, Helm values, OpenShift Console Plugin setup, and step-by-step
 
 Chat with agents via the Web UI or create CRDs directly with kubectl. The UI supports multi-turn conversations, session history, real-time agent activity streaming, and request cancellation.
 
-For kubectl examples and CRD manifests, see the **[Usage Guide](docs/usage.md)**.
+For kubectl examples and CRD manifests, see the **[Usage Guide](https://docs.kubecopilot.io/getting-started/usage/)**.
 
 ---
 
@@ -349,7 +350,7 @@ For kubectl examples and CRD manifests, see the **[Usage Guide](docs/usage.md)**
 
 Customize agent behaviour through skills (bash tool snippets), persistent instructions (`AGENT.md`), and a runtime Settings dialog in the Web UI. Features include dynamic model selection, runtime skill/instruction editing, custom agent personas, and BYOK (Bring Your Own Key) for external OpenAI-compatible providers.
 
-For full configuration options, see **[Configuration](docs/configuration.md)**.
+For full configuration options, see **[Configuration](https://docs.kubecopilot.io/getting-started/configuration/)**.
 
 ### ServiceAccount-Based Permissions
 
@@ -468,7 +469,7 @@ The `agent-server-container/` directory contains the pluggable server that bridg
 
 The default engine uses the **GitHub Copilot Python SDK** with persistent JSON-RPC connections and typed streaming events.
 
-For the full API contract, webhook payloads, environment variables, and a step-by-step guide to creating a new engine (e.g., Claude Code), see **[Agent Server Container](docs/agent-server.md)**.
+For the full API contract, webhook payloads, environment variables, and a step-by-step guide to creating a new engine (e.g., Claude Code), see **[Agent Server Container](https://docs.kubecopilot.io/reference/agent-server/)**.
 
 ---
 
@@ -483,7 +484,7 @@ make build     # build the operator binary
 make test      # run unit tests
 ```
 
-For the full project structure diagram and directory reference, see the **[Development Guide](docs/development.md)**.
+For the full project structure diagram and directory reference, see the **[Development Guide](https://docs.kubecopilot.io/reference/development/)**.
 
 ---
 
