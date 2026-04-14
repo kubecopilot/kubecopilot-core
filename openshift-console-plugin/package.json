@@ -17,7 +17,7 @@
     "@openshift-console/dynamic-plugin-sdk-webpack": "4.19-latest",
     "@patternfly/react-core": "^5.4.0",
     "@patternfly/react-icons": "^6.4.0",
-    "@types/node": "^22.0.0",
+    "@types/node": "^25.6.0",
     "@types/react": "^17.0.37",
     "@types/react-router-dom": "^5.3.3",
     "css-loader": "^7.1.4",
