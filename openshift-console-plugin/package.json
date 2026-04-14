@@ -18,7 +18,7 @@
     "@patternfly/react-core": "^5.4.0",
     "@patternfly/react-icons": "^6.4.0",
     "@types/node": "^25.6.0",
-    "@types/react": "^17.0.37",
+    "@types/react": "^19.2.14",
     "@types/react-router-dom": "^5.3.3",
     "css-loader": "^7.1.4",
     "react": "^19.2.4",
