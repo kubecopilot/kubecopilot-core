@@ -217,6 +217,14 @@ spec:
                   StorageSize is the size of the PersistentVolumeClaim for session state.
                   Defaults to "1Gi".
                 type: string
+              toolServers:
+                description: |-
+                  ToolServers is a list of KubeCopilotToolServer names that this agent can use.
+                  The operator passes these MCP server configurations to the agent container
+                  as the MCP_SERVERS environment variable (JSON-encoded).
+                items:
+                  type: string
+                type: array
             required:
             - githubTokenSecretRef
             type: object

@@ -67,6 +67,12 @@ type KubeCopilotAgentSpec struct {
 	// +optional
 	RBAC *AgentRBAC `json:"rbac,omitempty"`
 
+	// ToolServers is a list of KubeCopilotToolServer names that this agent can use.
+	// The operator passes these MCP server configurations to the agent container
+	// as the MCP_SERVERS environment variable (JSON-encoded).
+	// +optional
+	ToolServers []string `json:"toolServers,omitempty"`
+
 	// DelegateTo is a list of KubeCopilotAgent names that this agent can delegate
 	// tasks to. The operator configures the agent with a delegate_to_agent tool
 	// that creates KubeCopilotSend CRs targeting the specified agents.

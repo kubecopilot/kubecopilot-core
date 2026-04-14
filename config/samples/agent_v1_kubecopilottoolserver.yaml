@@ -1,0 +1,11 @@
+apiVersion: kubecopilot.io/v1
+kind: KubeCopilotToolServer
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-copilot-agent
+    app.kubernetes.io/managed-by: kustomize
+  name: k8s-tools
+  namespace: kube-copilot-agent
+spec:
+  url: "http://mcp-k8s-server:8080/sse"
+  transport: sse
