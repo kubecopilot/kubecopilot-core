@@ -1,0 +1,157 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: helm-ops-skills
+  namespace: kube-copilot-agent
+data:
+  helm-inspect.md: |
+    ---
+    name: helm-inspect
+    description: >
+      Inspect Helm releases, list installed charts, view release status,
+      revision history, and chart values. Works via kubectl by reading
+      Helm release Secrets directly.
+    ---
+
+    # Helm Release Inspection
+
+    Use this skill to inspect Helm releases in the cluster. Helm stores
+    release data as Kubernetes Secrets of type `helm.sh/release.v1`.
+
+    ## 1. List All Helm Releases
+
+    ```bash
+    # List all Helm release Secrets across namespaces
+    kubectl get secrets -A -l owner=helm \
+      -o custom-columns=\
+    NAMESPACE:.metadata.namespace,\
+    NAME:.metadata.labels.name,\
+    STATUS:.metadata.labels.status,\
+    VERSION:.metadata.labels.version \
+      --sort-by='.metadata.namespace'
+    ```
+
+    ## 2. List Releases in a Specific Namespace
+
+    ```bash
+    kubectl get secrets -n <namespace> -l owner=helm \
+      -o custom-columns=\
+    NAME:.metadata.labels.name,\
+    STATUS:.metadata.labels.status,\
+    VERSION:.metadata.labels.version
+    ```
+
+    ## 3. View Release Details
+
+    ```bash
+    # Get the latest revision of a release
+    kubectl get secrets -n <namespace> \
+      -l owner=helm,name=<release-name> \
+      --sort-by='.metadata.labels.version' \
+      -o custom-columns=\
+    VERSION:.metadata.labels.version,\
+    STATUS:.metadata.labels.status,\
+    CREATED:.metadata.creationTimestamp
+
+    # Decode release data (values and manifest)
+    kubectl get secret -n <namespace> \
+      sh.helm.release.v1.<release-name>.v<revision> \
+      -o jsonpath='{.data.release}' | base64 -d | base64 -d | gzip -d 2>/dev/null | python3 -c "
+    import sys, json
+    data = json.load(sys.stdin)
+    print('Chart:', data.get('chart',{}).get('metadata',{}).get('name',''))
+    print('Version:', data.get('chart',{}).get('metadata',{}).get('version',''))
+    print('App Version:', data.get('chart',{}).get('metadata',{}).get('appVersion',''))
+    print('Status:', data.get('info',{}).get('status',''))
+    print('Description:', data.get('info',{}).get('description',''))
+    print('---')
+    print('Values:')
+    print(json.dumps(data.get('config',{}), indent=2))
+    "
+    ```
+
+    ## 4. View Resources Created by a Release
+
+    ```bash
+    # Find resources managed by a Helm release
+    kubectl get all -n <namespace> -l app.kubernetes.io/managed-by=Helm \
+      -l app.kubernetes.io/instance=<release-name>
+    ```
+
+  helm-troubleshoot.md: |
+    ---
+    name: helm-troubleshoot
+    description: >
+      Diagnose failed Helm releases, stuck upgrades, pending installs,
+      and hook failures. Identify common Helm issues and suggest fixes.
+    ---
+
+    # Helm Release Troubleshooting
+
+    Use this skill to diagnose and troubleshoot Helm release issues.
+
+    ## 1. Find Failed or Pending Releases
+
+    ```bash
+    # List releases NOT in "deployed" status
+    kubectl get secrets -A -l owner=helm \
+      --field-selector type=helm.sh/release.v1 \
+      -o custom-columns=\
+    NAMESPACE:.metadata.namespace,\
+    NAME:.metadata.labels.name,\
+    STATUS:.metadata.labels.status,\
+    VERSION:.metadata.labels.version \
+      | grep -v deployed
+    ```
+
+    ## 2. Diagnose a Stuck Release
+
+    ```bash
+    # Check if a release is in "pending-install" or "pending-upgrade"
+    kubectl get secrets -n <namespace> -l owner=helm,name=<release-name> \
+      -o custom-columns=\
+    VERSION:.metadata.labels.version,\
+    STATUS:.metadata.labels.status
+
+    # Check for failed hooks
+    kubectl get pods -n <namespace> \
+      -l app.kubernetes.io/managed-by=Helm \
+      -l app.kubernetes.io/instance=<release-name> \
+      | grep -E "Error|Failed|CrashLoopBackOff"
+
+    # Look for Helm-related events
+    kubectl get events -n <namespace> \
+      --field-selector=type=Warning \
+      --sort-by='.lastTimestamp' | tail -20
+    ```
+
+    ## 3. Compare Revisions
+
+    ```bash
+    # List all revisions of a release
+    kubectl get secrets -n <namespace> \
+      -l owner=helm,name=<release-name> \
+      --sort-by='.metadata.labels.version' \
+      -o custom-columns=\
+    SECRET:.metadata.name,\
+    VERSION:.metadata.labels.version,\
+    STATUS:.metadata.labels.status,\
+    CREATED:.metadata.creationTimestamp
+    ```
+
+    ## 4. Check Resource Conflicts
+
+    ```bash
+    # Find resources that might conflict with a Helm install
+    kubectl get all -n <namespace> --show-labels \
+      | grep -v "app.kubernetes.io/managed-by=Helm"
+    ```
+
+    ## 5. Common Issues and Fixes
+
+    | Issue | Diagnosis | Fix |
+    |-------|-----------|-----|
+    | `pending-install` stuck | Failed hook or timeout | Delete the pending Secret, re-install |
+    | `pending-upgrade` stuck | Mid-upgrade failure | Rollback by applying previous revision |
+    | `failed` status | Check events and pod logs | Fix the issue, then upgrade again |
+    | Resource already exists | Non-Helm resource conflicts | Adopt with labels or remove conflict |

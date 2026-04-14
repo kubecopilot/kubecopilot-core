@@ -1,0 +1,15 @@
+apiVersion: kubecopilot.io/v1
+kind: KubeCopilotAgentTeam
+metadata:
+  name: ops-team
+  namespace: kube-copilot-agent
+spec:
+  coordinator: github-copilot-agent
+  members:
+    - name: network-troubleshooter-agent
+      role: network-expert
+      description: Diagnoses connectivity issues, DNS problems, and NetworkPolicy conflicts
+    - name: security-auditor-agent
+      role: security-auditor
+      description: Reviews RBAC configurations, pod security compliance, and secret hygiene
+  strategy: sequential

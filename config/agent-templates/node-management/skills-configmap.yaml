@@ -1,0 +1,268 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: node-management-skills
+  namespace: kube-copilot-agent
+data:
+  node-health.md: |
+    ---
+    name: node-health
+    description: >
+      Check node health, conditions, resource pressure, and overall cluster
+      infrastructure status. Identify nodes that need attention.
+    ---
+
+    # Node Health Checks
+
+    Use this skill to assess node health and identify issues.
+
+    ## 1. Node Overview
+
+    ```bash
+    # Node status with version and OS info
+    kubectl get nodes -o wide
+
+    # Node resource usage
+    kubectl top nodes
+
+    # Node conditions summary
+    kubectl get nodes -o custom-columns=\
+    NAME:.metadata.name,\
+    STATUS:.status.conditions[-1].type,\
+    READY:.status.conditions[-1].status,\
+    MEMORY-PRESSURE:'.status.conditions[?(@.type=="MemoryPressure")].status',\
+    DISK-PRESSURE:'.status.conditions[?(@.type=="DiskPressure")].status',\
+    PID-PRESSURE:'.status.conditions[?(@.type=="PIDPressure")].status'
+    ```
+
+    ## 2. Detailed Node Inspection
+
+    ```bash
+    # Full node conditions
+    kubectl describe node <node> | grep -A15 "Conditions:"
+
+    # Node allocatable vs capacity
+    kubectl get node <node> -o json | python3 -c "
+    import sys, json
+    node = json.load(sys.stdin)
+    cap = node['status']['capacity']
+    alloc = node['status']['allocatable']
+    print(f'{\"RESOURCE\":<15} {\"CAPACITY\":<15} {\"ALLOCATABLE\":<15}')
+    print('-' * 45)
+    for key in ['cpu', 'memory', 'ephemeral-storage', 'pods']:
+        print(f'{key:<15} {cap.get(key, \"-\"):<15} {alloc.get(key, \"-\"):<15}')
+    "
+
+    # Pods running on a specific node
+    kubectl get pods -A --field-selector=spec.nodeName=<node> \
+      -o custom-columns=\
+    NAMESPACE:.metadata.namespace,\
+    POD:.metadata.name,\
+    STATUS:.status.phase
+    ```
+
+    ## 3. Node Taints and Labels
+
+    ```bash
+    # List node taints
+    kubectl get nodes -o custom-columns=\
+    NAME:.metadata.name,\
+    TAINTS:.spec.taints
+
+    # List node labels (relevant ones)
+    kubectl get nodes --show-labels | tr ',' '\n'
+    ```
+
+    ## 4. OpenShift Node Management
+
+    ```bash
+    # MachineConfigPool status
+    oc get mcp
+
+    # Machine status
+    oc get machines -A
+
+    # MachineSets (for scaling)
+    oc get machinesets -A
+    ```
+
+  node-ops.md: |
+    ---
+    name: node-ops
+    description: >
+      Perform node maintenance operations including cordon, drain, and
+      uncordon. Always shows impact assessment before executing.
+    ---
+
+    # Node Maintenance Operations
+
+    Use this skill for node maintenance. ALWAYS show the impact before executing.
+
+    ## 1. Pre-Drain Impact Assessment
+
+    ```bash
+    # List pods that will be evicted from the node
+    kubectl get pods -A --field-selector=spec.nodeName=<node> \
+      -o custom-columns=\
+    NAMESPACE:.metadata.namespace,\
+    POD:.metadata.name,\
+    OWNER:.metadata.ownerReferences[0].kind,\
+    STATUS:.status.phase \
+      | grep -v DaemonSet
+
+    # Count pods by namespace
+    kubectl get pods -A --field-selector=spec.nodeName=<node> --no-headers | \
+      awk '{print $1}' | sort | uniq -c | sort -rn
+
+    # Check PodDisruptionBudgets that may block drain
+    kubectl get pdb -A -o custom-columns=\
+    NAMESPACE:.metadata.namespace,\
+    NAME:.metadata.name,\
+    MIN-AVAILABLE:.spec.minAvailable,\
+    MAX-UNAVAILABLE:.spec.maxUnavailable,\
+    CURRENT:.status.currentHealthy,\
+    DESIRED:.status.desiredHealthy
+    ```
+
+    ## 2. Cordon (Mark Unschedulable)
+
+    ```bash
+    # Cordon a node — prevents new pods from being scheduled
+    kubectl cordon <node>
+
+    # Verify node is cordoned
+    kubectl get node <node> -o jsonpath='{.spec.unschedulable}'
+    ```
+
+    ## 3. Drain (Evict Pods)
+
+    ```bash
+    # Safe drain with DaemonSet awareness and timeout
+    kubectl drain <node> \
+      --ignore-daemonsets \
+      --delete-emptydir-data \
+      --timeout=5m
+
+    # Drain with grace period
+    kubectl drain <node> \
+      --ignore-daemonsets \
+      --delete-emptydir-data \
+      --grace-period=60 \
+      --timeout=10m
+    ```
+
+    ## 4. Uncordon (Restore Scheduling)
+
+    ```bash
+    # Uncordon after maintenance
+    kubectl uncordon <node>
+
+    # Verify node is schedulable
+    kubectl get node <node> -o jsonpath='{.spec.unschedulable}'
+    ```
+
+    ## 5. Full Maintenance Workflow
+
+    The complete maintenance workflow is:
+
+    1. **Assess impact** (section 1 above)
+    2. **Cordon** the node (stops new scheduling)
+    3. **Drain** the node (evicts existing pods)
+    4. Perform maintenance
+    5. **Uncordon** the node (restores scheduling)
+    6. **Verify** pods are rescheduled
+
+  capacity-planning.md: |
+    ---
+    name: capacity-planning
+    description: >
+      Analyze cluster resource utilization, identify overcommitted nodes,
+      and plan capacity for scaling decisions.
+    ---
+
+    # Capacity Planning
+
+    Use this skill to analyze resource utilization and plan capacity.
+
+    ## 1. Cluster-Wide Resource Summary
+
+    ```bash
+    # Node resource usage overview
+    kubectl top nodes
+
+    # Total cluster capacity vs allocatable
+    kubectl get nodes -o json | python3 -c "
+    import sys, json
+    data = json.load(sys.stdin)
+    total_cpu_cap = 0
+    total_mem_cap = 0
+    total_cpu_alloc = 0
+    total_mem_alloc = 0
+    for node in data['items']:
+        cap = node['status']['capacity']
+        alloc = node['status']['allocatable']
+        cpu_c = int(cap.get('cpu', '0').replace('m', '')) if 'm' in cap.get('cpu', '0') else int(cap.get('cpu', '0')) * 1000
+        cpu_a = int(alloc.get('cpu', '0').replace('m', '')) if 'm' in alloc.get('cpu', '0') else int(alloc.get('cpu', '0')) * 1000
+        total_cpu_cap += cpu_c
+        total_cpu_alloc += cpu_a
+    print(f'Total CPU capacity: {total_cpu_cap}m')
+    print(f'Total CPU allocatable: {total_cpu_alloc}m')
+    print(f'Nodes: {len(data[\"items\"])}')
+    "
+    ```
+
+    ## 2. Per-Node Allocation
+
+    ```bash
+    # Resource requests vs capacity per node
+    for node in $(kubectl get nodes -o jsonpath='{.items[*].metadata.name}'); do
+      echo "=== $node ==="
+      kubectl describe node "$node" | grep -A5 "Allocated resources:"
+      echo
+    done
+    ```
+
+    ## 3. Namespace Resource Consumption
+
+    ```bash
+    # Top namespaces by pod count
+    kubectl get pods -A --no-headers | awk '{print $1}' | sort | uniq -c | sort -rn | head -15
+
+    # Resource quotas across namespaces
+    kubectl get resourcequotas -A -o custom-columns=\
+    NAMESPACE:.metadata.namespace,\
+    NAME:.metadata.name,\
+    CPU-USED:.status.used.requests\\.cpu,\
+    CPU-HARD:.status.hard.requests\\.cpu,\
+    MEM-USED:.status.used.requests\\.memory,\
+    MEM-HARD:.status.hard.requests\\.memory
+
+    # LimitRanges
+    kubectl get limitranges -A
+    ```
+
+    ## 4. Pod Resource Requests vs Actual Usage
+
+    ```bash
+    # Top memory consumers
+    kubectl top pods -A --sort-by=memory | head -20
+
+    # Top CPU consumers
+    kubectl top pods -A --sort-by=cpu | head -20
+
+    # Pods without resource requests (scheduling risk)
+    kubectl get pods -A -o json | python3 -c "
+    import sys, json
+    data = json.load(sys.stdin)
+    count = 0
+    for pod in data['items']:
+        ns = pod['metadata']['namespace']
+        name = pod['metadata']['name']
+        for c in pod['spec'].get('containers', []):
+            req = c.get('resources', {}).get('requests', {})
+            if not req:
+                count += 1
+                print(f'No requests: {ns}/{name}/{c[\"name\"]}')
+    print(f'\nTotal containers without requests: {count}')
+    " | tail -25
+    ```

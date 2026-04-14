@@ -1,0 +1,206 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitops-skills
+  namespace: kube-copilot-agent
+data:
+  argocd-inspect.md: |
+    ---
+    name: argocd-inspect
+    description: >
+      Inspect Argo CD Application resources, check sync and health status,
+      view revision history, and detect configuration drift.
+    ---
+
+    # Argo CD Inspection
+
+    Use this skill to inspect Argo CD resources via kubectl.
+
+    ## 1. Check if Argo CD Is Installed
+
+    ```bash
+    # Verify Argo CD CRDs exist
+    kubectl api-resources | grep argoproj.io || \
+      echo "Argo CD CRDs not found — Argo CD may not be installed"
+
+    # Find Argo CD namespace
+    kubectl get pods -A -l app.kubernetes.io/part-of=argocd \
+      -o custom-columns=NAMESPACE:.metadata.namespace,POD:.metadata.name
+    ```
+
+    ## 2. List All Applications
+
+    ```bash
+    # List Argo CD Applications with status
+    kubectl get applications.argoproj.io -A \
+      -o custom-columns=\
+    NAMESPACE:.metadata.namespace,\
+    NAME:.metadata.name,\
+    SYNC:.status.sync.status,\
+    HEALTH:.status.health.status,\
+    REPO:.spec.source.repoURL,\
+    PATH:.spec.source.path
+
+    # List ApplicationSets
+    kubectl get applicationsets.argoproj.io -A \
+      -o custom-columns=\
+    NAMESPACE:.metadata.namespace,\
+    NAME:.metadata.name
+    ```
+
+    ## 3. Inspect Application Details
+
+    ```bash
+    # Detailed application status
+    kubectl get application.argoproj.io <name> -n <namespace> -o yaml
+
+    # Application sync conditions
+    kubectl get application.argoproj.io <name> -n <namespace> \
+      -o jsonpath='{range .status.conditions[*]}{.type}: {.message}{"\n"}{end}'
+
+    # Application resources and their health
+    kubectl get application.argoproj.io <name> -n <namespace> \
+      -o json | python3 -c "
+    import sys, json
+    app = json.load(sys.stdin)
+    resources = app.get('status', {}).get('resources', [])
+    print(f'{\"KIND\":<25} {\"NAME\":<35} {\"STATUS\":<12} {\"HEALTH\":<12}')
+    print('-' * 84)
+    for r in resources:
+        kind = r.get('kind', '')
+        name = r.get('name', '')
+        status = r.get('status', '')
+        health = r.get('health', {}).get('status', '')
+        print(f'{kind:<25} {name:<35} {status:<12} {health:<12}')
+    "
+    ```
+
+    ## 4. Find Out-of-Sync Applications
+
+    ```bash
+    # Applications not in sync
+    kubectl get applications.argoproj.io -A -o json | python3 -c "
+    import sys, json
+    data = json.load(sys.stdin)
+    print(f'{\"NAMESPACE\":<20} {\"NAME\":<30} {\"SYNC\":<12} {\"HEALTH\":<12}')
+    print('-' * 74)
+    for app in data.get('items', []):
+        sync = app.get('status', {}).get('sync', {}).get('status', 'Unknown')
+        health = app.get('status', {}).get('health', {}).get('status', 'Unknown')
+        if sync != 'Synced' or health != 'Healthy':
+            ns = app['metadata']['namespace']
+            name = app['metadata']['name']
+            print(f'{ns:<20} {name:<30} {sync:<12} {health:<12}')
+    "
+    ```
+
+  flux-inspect.md: |
+    ---
+    name: flux-inspect
+    description: >
+      Inspect Flux CD resources including Kustomizations, HelmReleases,
+      GitRepositories, and source status. Detect reconciliation failures.
+    ---
+
+    # Flux CD Inspection
+
+    Use this skill to inspect Flux resources via kubectl.
+
+    ## 1. Check if Flux Is Installed
+
+    ```bash
+    # Verify Flux CRDs exist
+    kubectl api-resources | grep fluxcd || \
+      echo "Flux CRDs not found — Flux may not be installed"
+
+    # Check Flux controllers
+    kubectl get pods -n flux-system 2>/dev/null || \
+      echo "flux-system namespace not found"
+    ```
+
+    ## 2. List Flux Resources
+
+    ```bash
+    # Kustomizations
+    kubectl get kustomizations.kustomize.toolkit.fluxcd.io -A \
+      -o custom-columns=\
+    NAMESPACE:.metadata.namespace,\
+    NAME:.metadata.name,\
+    READY:.status.conditions[0].status,\
+    STATUS:.status.conditions[0].message
+
+    # HelmReleases
+    kubectl get helmreleases.helm.toolkit.fluxcd.io -A \
+      -o custom-columns=\
+    NAMESPACE:.metadata.namespace,\
+    NAME:.metadata.name,\
+    READY:.status.conditions[0].status,\
+    STATUS:.status.conditions[0].message
+
+    # Git Repositories (sources)
+    kubectl get gitrepositories.source.toolkit.fluxcd.io -A \
+      -o custom-columns=\
+    NAMESPACE:.metadata.namespace,\
+    NAME:.metadata.name,\
+    URL:.spec.url,\
+    READY:.status.conditions[0].status
+    ```
+
+    ## 3. Inspect Failing Resources
+
+    ```bash
+    # Find Kustomizations that are not ready
+    kubectl get kustomizations.kustomize.toolkit.fluxcd.io -A -o json | python3 -c "
+    import sys, json
+    data = json.load(sys.stdin)
+    for item in data.get('items', []):
+        conditions = item.get('status', {}).get('conditions', [])
+        for c in conditions:
+            if c.get('type') == 'Ready' and c.get('status') != 'True':
+                ns = item['metadata']['namespace']
+                name = item['metadata']['name']
+                msg = c.get('message', '')
+                print(f'NOT READY: {ns}/{name}')
+                print(f'  Reason: {c.get(\"reason\", \"\")}')
+                print(f'  Message: {msg[:200]}')
+                print()
+    "
+
+    # Find HelmReleases that are not ready
+    kubectl get helmreleases.helm.toolkit.fluxcd.io -A -o json | python3 -c "
+    import sys, json
+    data = json.load(sys.stdin)
+    for item in data.get('items', []):
+        conditions = item.get('status', {}).get('conditions', [])
+        for c in conditions:
+            if c.get('type') == 'Ready' and c.get('status') != 'True':
+                ns = item['metadata']['namespace']
+                name = item['metadata']['name']
+                print(f'NOT READY: {ns}/{name}')
+                print(f'  Reason: {c.get(\"reason\", \"\")}')
+                print(f'  Message: {c.get(\"message\", \"\")[:200]}')
+                print()
+    "
+    ```
+
+    ## 4. Source Connectivity
+
+    ```bash
+    # Check GitRepository sync status
+    kubectl get gitrepositories.source.toolkit.fluxcd.io -A -o json | python3 -c "
+    import sys, json
+    data = json.load(sys.stdin)
+    print(f'{\"NAMESPACE\":<20} {\"NAME\":<30} {\"URL\":<50} {\"READY\":<8}')
+    print('-' * 108)
+    for item in data.get('items', []):
+        ns = item['metadata']['namespace']
+        name = item['metadata']['name']
+        url = item.get('spec', {}).get('url', '')
+        conditions = item.get('status', {}).get('conditions', [])
+        ready = 'Unknown'
+        for c in conditions:
+            if c.get('type') == 'Ready':
+                ready = c.get('status', 'Unknown')
+        print(f'{ns:<20} {name:<30} {url:<50} {ready:<8}')
+    "
+    ```
