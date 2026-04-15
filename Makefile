@@ -147,6 +147,16 @@ container-build-ui: ## Build web UI container image
 container-push-ui: ## Push web UI container image
 	$(CONTAINER_TOOL) push $(UI_IMG)
 
+CONSOLE_PLUGIN_IMG ?= quay.io/gfontana/kube-copilot-console-plugin:v1.0
+
+.PHONY: container-console-plugin-build
+container-console-plugin-build: ## Build console plugin container image
+	$(CONTAINER_TOOL) build -t $(CONSOLE_PLUGIN_IMG) -f ./openshift-console-plugin/Containerfile ./openshift-console-plugin/
+
+.PHONY: container-console-plugin-push
+container-console-plugin-push: ## Push console plugin container image
+	$(CONTAINER_TOOL) push $(CONSOLE_PLUGIN_IMG)
+
 .PHONY: deploy-ui
 deploy-ui: ## Deploy the web UI via Kustomize
 	kubectl apply -k ./web-ui/deploy/base/
