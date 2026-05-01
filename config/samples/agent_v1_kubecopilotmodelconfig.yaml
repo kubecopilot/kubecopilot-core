@@ -1,0 +1,27 @@
+apiVersion: kubecopilot.io/v1
+kind: KubeCopilotModelConfig
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-copilot-agent
+    app.kubernetes.io/managed-by: kustomize
+  name: openai-primary
+  namespace: kube-copilot-agent
+spec:
+  provider: openai
+  endpoint: "https://api.openai.com/v1"
+  secretRef:
+    name: openai-api-key
+  models:
+    - name: gpt-4o
+      maxTokens: 128000
+      costPerInputToken: "0.000005"
+      costPerOutputToken: "0.000015"
+    - name: gpt-4o-mini
+      maxTokens: 128000
+      costPerInputToken: "0.00000015"
+      costPerOutputToken: "0.0000006"
+  rateLimits:
+    requestsPerMinute: 60
+    tokensPerMinute: 90000
+  fallback:
+    name: ollama-fallback

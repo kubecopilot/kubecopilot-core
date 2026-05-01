@@ -78,6 +78,13 @@ type KubeCopilotAgentSpec struct {
 	// that creates KubeCopilotSend CRs targeting the specified agents.
 	// +optional
 	DelegateTo []string `json:"delegateTo,omitempty"`
+
+	// ModelConfigRef references a KubeCopilotModelConfig in the same namespace
+	// that provides LLM provider configuration (credentials, models, rate limits,
+	// fallback chains) for this agent. When set, it supersedes per-request
+	// provider config in SessionConfig.
+	// +optional
+	ModelConfigRef *LocalObjectReference `json:"modelConfigRef,omitempty"`
 }
 
 // AgentRBAC defines the ServiceAccount and RBAC rules for an agent.

@@ -86,6 +86,20 @@ spec:
                 required:
                 - name
                 type: object
+              modelConfigRef:
+                description: |-
+                  ModelConfigRef references a KubeCopilotModelConfig in the same namespace
+                  that provides LLM provider configuration (credentials, models, rate limits,
+                  fallback chains) for this agent. When set, it supersedes per-request
+                  provider config in SessionConfig.
+                properties:
+                  name:
+                    description: Name of the referent.
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
               rbac:
                 description: |-
                   RBAC configures a ServiceAccount and role-based permissions for the agent.
