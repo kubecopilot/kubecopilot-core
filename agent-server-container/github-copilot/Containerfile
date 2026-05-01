@@ -28,7 +28,9 @@ WORKDIR /home/copilot
 # Python venv for the HTTP shim
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir fastapi uvicorn httpx github-copilot-sdk
+RUN pip install --no-cache-dir fastapi uvicorn httpx github-copilot-sdk \
+    opentelemetry-sdk \
+    opentelemetry-exporter-otlp-proto-http
 
 COPY entrypoint.sh /entrypoint.sh
 COPY server.py /server.py

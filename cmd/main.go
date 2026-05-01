@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"os"
@@ -37,6 +38,7 @@ import (
 
 	agentv1 "github.com/gfontana/kube-copilot-agent/api/v1"
 	"github.com/gfontana/kube-copilot-agent/internal/controller"
+	agentOtel "github.com/gfontana/kube-copilot-agent/internal/otel"
 	agentwebhook "github.com/gfontana/kube-copilot-agent/internal/webhook"
 	// +kubebuilder:scaffold:imports
 )
@@ -87,6 +89,20 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	// Initialise OpenTelemetry tracing. The tracer is a no-op when
+	// OTEL_EXPORTER_OTLP_ENDPOINT is unset so there is no hard dependency on
+	// an OTEL collector in non-production deployments.
+	otelShutdown, err := agentOtel.Setup(context.Background())
+	if err != nil {
+		setupLog.Error(err, "Failed to set up OpenTelemetry")
+		os.Exit(1)
+	}
+	defer func() {
+		if err := otelShutdown(context.Background()); err != nil {
+			setupLog.Error(err, "Failed to shut down OpenTelemetry")
+		}
+	}()
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will

@@ -41,6 +41,18 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        {{- if .Values.tracing.enabled }}
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: {{ .Values.tracing.endpoint | quote }}
+        {{- if .Values.tracing.operatorServiceName }}
+        - name: OTEL_SERVICE_NAME
+          value: {{ .Values.tracing.operatorServiceName | quote }}
+        {{- end }}
+        {{- if .Values.tracing.agentServiceName }}
+        - name: OTEL_AGENT_SERVICE_NAME
+          value: {{ .Values.tracing.agentServiceName | quote }}
+        {{- end }}
+        {{- end }}
         ports:
         - containerPort: 8090
           name: webhook

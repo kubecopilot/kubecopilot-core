@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,60 @@ import httpx
 from copilot import CopilotClient, PermissionHandler, SubprocessConfig
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
+
+# ── OpenTelemetry (optional) ─────────────────────────────────────────────────
+# Tracing is enabled when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+_OTEL_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
+_otel_enabled = bool(_OTEL_ENDPOINT)
+
+if _otel_enabled:
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    _service_name = os.environ.get("OTEL_SERVICE_NAME", "kube-copilot-agent-server")
+    _resource = Resource(attributes={SERVICE_NAME: _service_name})
+    _provider = TracerProvider(resource=_resource)
+    _exporter = OTLPSpanExporter(endpoint=_OTEL_ENDPOINT.rstrip("/") + "/v1/traces")
+    _provider.add_span_processor(BatchSpanProcessor(_exporter))
+    trace.set_tracer_provider(_provider)
+    _tracer = trace.get_tracer("kubecopilot/agent-server")
+else:
+    _tracer = None
+
+
+def _start_span(name: str, attributes: dict | None = None):
+    """Start an OTEL span if tracing is enabled, otherwise return a no-op context."""
+    if _otel_enabled and _tracer is not None:
+        span = _tracer.start_span(name)
+        if attributes:
+            for k, v in attributes.items():
+                span.set_attribute(k, v)
+        return span
+    return _NoopSpan()
+
+
+class _NoopSpan:
+    """Minimal no-op span context manager used when OTEL is disabled."""
+    def set_attribute(self, key: str, value: Any) -> None:  # noqa: ANN401
+        pass
+
+    def record_exception(self, exc: Exception) -> None:
+        pass
+
+    def set_status(self, status: Any) -> None:  # noqa: ANN401
+        pass
+
+    def end(self) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
 
 app = FastAPI(title="KubeCopilot Agent")
 
@@ -255,6 +310,11 @@ async def _run_sdk_streaming(
     # Collect response via events
     done = asyncio.Event()
     cancelled = False
+    # _tool_spans is local to this invocation (one per concurrent SDK session),
+    # so there are no cross-session data races. Spans are keyed by tool_name; if
+    # the same tool is invoked twice within a single session before the first
+    # execution completes, the earlier span is replaced (rare in practice).
+    _tool_spans: dict[str, Any] = {}  # tool_name → active span for execution tracking
 
     def on_event(event):
         nonlocal sequence, response_text, resolved_session_id, cancelled, _thinking_buffer
@@ -323,18 +383,29 @@ async def _run_sdk_streaming(
         # Tool execution
         elif etype == "tool.execution_start":
             tool_name = getattr(data, "tool_name", "") or ""
-            if tool_name not in SKIP_TOOLS and chunk_url and send_ref:
-                args = getattr(data, "arguments", {}) or {}
-                desc = args.get("description") or args.get("command") or str(args)[:120]
-                asyncio.get_event_loop().create_task(_post_chunk(
-                    chunk_url, send_ref, resolved_session_id or session_id,
-                    agent_ref, namespace, sequence, "tool_call",
-                    f"🔧 **{tool_name}**: {desc[:200]}",
-                ))
-                sequence += 1
+            if tool_name not in SKIP_TOOLS:
+                tool_span = _start_span(f"tool.{tool_name}", {
+                    "kubecopilot.tool.name": tool_name,
+                    "kubecopilot.session_id": resolved_session_id or session_id or "",
+                })
+                _tool_spans[tool_name] = tool_span
+                if chunk_url and send_ref:
+                    args = getattr(data, "arguments", {}) or {}
+                    desc = args.get("description") or args.get("command") or str(args)[:120]
+                    asyncio.get_event_loop().create_task(_post_chunk(
+                        chunk_url, send_ref, resolved_session_id or session_id,
+                        agent_ref, namespace, sequence, "tool_call",
+                        f"🔧 **{tool_name}**: {desc[:200]}",
+                    ))
+                    sequence += 1
 
         elif etype == "tool.execution_complete":
             tool_name = getattr(data, "tool_name", "") or ""
+            tool_span = _tool_spans.pop(tool_name, None)
+            if tool_span is not None:
+                success = getattr(data, "success", True)
+                tool_span.set_attribute("kubecopilot.tool.success", success)
+                tool_span.end()
             if tool_name not in SKIP_TOOLS and chunk_url and send_ref:
                 result = getattr(data, "result", None)
                 output = ""
@@ -388,11 +459,12 @@ async def _run_sdk_streaming(
 
     session.on(on_event)
 
-    # Send the message
-    await session.send(message)
+    try:
+        # Send the message
+        await session.send(message)
 
-    # Wait for completion (no timeout — complex tool-use chains can take arbitrarily long)
-    await done.wait()
+        # Wait for completion (no timeout — complex tool-use chains can take arbitrarily long)
+        await done.wait()
     finally:
         if queue_id:
             _active_sessions.pop(queue_id, None)
@@ -438,6 +510,13 @@ async def _process_queue():
 async def _handle_async_item(item: dict):
     """Process a single async chat item under the concurrency semaphore."""
     queue_id = item["queue_id"]
+    span = _start_span("asyncchat.process", {
+        "kubecopilot.queue_id": queue_id,
+        "kubecopilot.agent_ref": item.get("agent_ref") or "",
+        "kubecopilot.session_id": item.get("session_id") or "",
+        "kubecopilot.send_ref": item.get("send_ref") or "",
+    })
+    start = time.monotonic()
     async with _concurrency:
         try:
             response_text, resolved_session_id = await _run_sdk_streaming(
@@ -453,6 +532,8 @@ async def _handle_async_item(item: dict):
             history = load_session(resolved_session_id)
             history.append({"user": item["message"], "assistant": response_text})
             save_session(resolved_session_id, history)
+
+            span.set_attribute("kubecopilot.duration_ms", int((time.monotonic() - start) * 1000))
 
             if WEBHOOK_URL:
                 payload = {
@@ -470,8 +551,10 @@ async def _handle_async_item(item: dict):
                 except Exception as e:
                     print(f"[asyncchat] webhook POST failed for queue_id={queue_id}: {e}")
         except Exception as e:
+            span.record_exception(e)
             print(f"[asyncchat] processing failed for queue_id={queue_id}: {e}")
         finally:
+            span.end()
             _active_sessions.pop(queue_id, None)
             _queue.task_done()
 

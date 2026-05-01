@@ -24,6 +24,9 @@ import (
 	"net/http"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,6 +36,8 @@ import (
 
 	agentv1 "github.com/gfontana/kube-copilot-agent/api/v1"
 )
+
+var sendTracer = otel.Tracer("kubecopilot/controller/send")
 
 // KubeCopilotSendReconciler reconciles a KubeCopilotSend object
 type KubeCopilotSendReconciler struct {
@@ -87,6 +92,13 @@ type asyncChatResponse struct {
 }
 
 func (r *KubeCopilotSendReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	ctx, span := sendTracer.Start(ctx, "KubeCopilotSend.Reconcile")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("kubecopilot.send.name", req.Name),
+		attribute.String("kubecopilot.send.namespace", req.Namespace),
+	)
+
 	log := logf.FromContext(ctx)
 
 	send := &agentv1.KubeCopilotSend{}
@@ -152,6 +164,10 @@ func (r *KubeCopilotSendReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		log.Info("Send approved, proceeding", "policy", evalResult.PolicyName, "rule", evalResult.RuleName)
 	}
 
+	span.SetAttributes(
+		attribute.String("kubecopilot.send.agent_ref", send.Spec.AgentRef),
+		attribute.String("kubecopilot.send.session_id", send.Spec.SessionID),
+	)
 	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:8080/asyncchat", agent.Status.ServiceName, send.Namespace)
 
 	reqBody := asyncChatRequest{
@@ -225,6 +241,8 @@ func (r *KubeCopilotSendReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(bodyBytes))
 	if err != nil {
 		log.Error(err, "failed to call agent asyncchat")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "asyncchat call failed")
 		send.Status.Phase = phaseError
 		send.Status.ErrorMessage = err.Error()
 		return ctrl.Result{}, r.Status().Update(ctx, send)
@@ -246,6 +264,7 @@ func (r *KubeCopilotSendReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	send.Status.Phase = phaseDone
 	send.Status.QueueID = asyncResp.QueueID
+	span.SetAttributes(attribute.String("kubecopilot.send.queue_id", asyncResp.QueueID))
 	return ctrl.Result{}, r.Status().Update(ctx, send)
 }
 

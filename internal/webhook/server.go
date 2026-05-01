@@ -23,14 +23,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	agentv1 "github.com/gfontana/kube-copilot-agent/api/v1"
 )
+
+var tracer = otel.Tracer("kubecopilot/webhook")
 
 const defaultNamespace = "default"
 
@@ -67,9 +73,9 @@ func New(k8sClient client.Client, addr string) *Server {
 // Start runs the HTTP server. It blocks until the context is cancelled.
 func (s *Server) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/response", s.handleResponse)
-	mux.HandleFunc("/chunk", s.handleChunk)
-	mux.HandleFunc("/notification", s.handleNotification)
+	mux.HandleFunc("/response", instrument("response", s.handleResponse))
+	mux.HandleFunc("/chunk", instrument("chunk", s.handleChunk))
+	mux.HandleFunc("/notification", instrument("notification", s.handleNotification))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -91,6 +97,52 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("webhook server failed: %w", err)
 	}
 	return nil
+}
+
+// instrument wraps an HTTP handler with Prometheus metrics and OTEL tracing.
+func instrument(handlerName string, next func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := tracer.Start(r.Context(), handlerName)
+		defer span.End()
+
+		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		start := time.Now()
+
+		next(rw, r.WithContext(ctx))
+
+		duration := time.Since(start).Seconds()
+		status := strconv.Itoa(rw.statusCode)
+
+		webhookRequestsTotal.WithLabelValues(handlerName, status).Inc()
+		webhookDurationSeconds.WithLabelValues(handlerName).Observe(duration)
+
+		span.SetAttributes(
+			attribute.String("http.method", r.Method),
+			attribute.Int("http.status_code", rw.statusCode),
+		)
+		if rw.statusCode >= 400 {
+			span.SetStatus(codes.Error, http.StatusText(rw.statusCode))
+		}
+	}
+}
+
+// responseWriter wraps http.ResponseWriter to capture the status code.
+// It also implements http.Flusher so handlers that call Flush() still work.
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+// Flush delegates to the underlying ResponseWriter if it implements http.Flusher.
+func (rw *responseWriter) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func (s *Server) handleResponse(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +190,7 @@ func (s *Server) handleResponse(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	ctx := context.Background()
+	ctx := r.Context()
 	if err := s.k8sClient.Create(ctx, resp); err != nil {
 		log.Error(err, "failed to create KubeCopilotResponse", "name", name, "namespace", namespace)
 		http.Error(w, "failed to create response object", http.StatusInternalServerError)
@@ -209,7 +261,7 @@ func (s *Server) handleChunk(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	ctx := context.Background()
+	ctx := r.Context()
 	if err := s.k8sClient.Create(ctx, chunk); err != nil {
 		log.Error(err, "failed to create KubeCopilotChunk", "name", name)
 		http.Error(w, "failed to create chunk", http.StatusInternalServerError)
@@ -290,7 +342,7 @@ func (s *Server) handleNotification(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	ctx := context.Background()
+	ctx := r.Context()
 	if err := s.k8sClient.Create(ctx, notif); err != nil {
 		log.Error(err, "Failed to create KubeCopilotNotification", "name", name, "namespace", namespace)
 		http.Error(w, "failed to create notification object", http.StatusInternalServerError)

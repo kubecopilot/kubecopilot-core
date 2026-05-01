@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"slices"
 	"time"
 
@@ -407,6 +408,23 @@ func (r *KubeCopilotAgentReconciler) ensurePod(ctx context.Context, agent *agent
 			envVars = append(envVars, corev1.EnvVar{
 				Name:  "MCP_SERVERS",
 				Value: mcpServers,
+			})
+		}
+	}
+
+	// Forward OTEL tracing configuration to the agent pod so agent server
+	// traces can be correlated with operator traces in the same backend.
+	if endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); endpoint != "" {
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  "OTEL_EXPORTER_OTLP_ENDPOINT",
+			Value: endpoint,
+		})
+		// Forward service name override if set; the agent server defaults to
+		// "kube-copilot-agent-server" when the variable is absent.
+		if svcName := os.Getenv("OTEL_AGENT_SERVICE_NAME"); svcName != "" {
+			envVars = append(envVars, corev1.EnvVar{
+				Name:  "OTEL_SERVICE_NAME",
+				Value: svcName,
 			})
 		}
 	}

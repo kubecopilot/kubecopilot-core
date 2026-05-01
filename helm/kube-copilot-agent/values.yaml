@@ -49,3 +49,23 @@ leaderElect: true
 ## @section CRD installation
 ## Set to false to skip CRD installation (e.g. if you manage CRDs separately)
 installCRDs: true
+
+## @section OpenTelemetry tracing
+## Configure OTLP tracing for the operator and agent pods.
+## Tracing is disabled by default. Set enabled: true and configure the endpoint
+## to export traces to Jaeger, Grafana Tempo, or any OTLP-compatible backend.
+tracing:
+  ## Enable OpenTelemetry tracing
+  enabled: false
+  ## OTLP collector endpoint.
+  ## Use gRPC format (e.g. jaeger-collector:4317) or HTTP format
+  ## (e.g. http://otel-collector:4318).
+  ## When the endpoint starts with http:// or https://, the HTTP exporter is
+  ## used; otherwise gRPC is assumed.
+  endpoint: ""
+  ## Service name reported in traces for the operator.
+  ## Defaults to "kube-copilot-agent" when empty.
+  operatorServiceName: ""
+  ## Service name reported in traces for the agent server pods.
+  ## Defaults to "kube-copilot-agent-server" when empty.
+  agentServiceName: ""

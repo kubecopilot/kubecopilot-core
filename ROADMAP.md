@@ -24,7 +24,7 @@ This document outlines the high-level roadmap for KubeCopilot. For detailed trac
 
 ### Next — Ecosystem & Enterprise Readiness
 - 🔜 MCP Server Integration ([#15](https://github.com/kubecopilot/kubecopilot-core/issues/15)) — **Critical**
-- 🔜 OpenTelemetry Observability ([#17](https://github.com/kubecopilot/kubecopilot-core/issues/17)) — **High**
+- ✅ OpenTelemetry Observability ([#17](https://github.com/kubecopilot/kubecopilot-core/issues/17)) — **High**
 - 🔜 Audit Logging & Compliance ([#20](https://github.com/kubecopilot/kubecopilot-core/issues/20)) — **High**
 - 🔜 Guardrails & Safety Policies ([#22](https://github.com/kubecopilot/kubecopilot-core/issues/22)) — **High**
 
